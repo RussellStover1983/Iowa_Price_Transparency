@@ -40,7 +40,7 @@ class CptCode(BaseModel):
     code: str
     description: str
     category: Optional[str] = None
-    common_names: Optional[str] = None
+    common_names: Optional[list[str]] = None
 
 
 class NormalizedRate(BaseModel):
@@ -54,3 +54,53 @@ class NormalizedRate(BaseModel):
     rate_type: Optional[str] = None
     service_setting: Optional[str] = None
     mrf_file_id: Optional[int] = None
+
+
+# --- Phase 1 response models ---
+
+
+class CptSearchResult(BaseModel):
+    code: str
+    description: str
+    category: Optional[str] = None
+    common_names: list[str] = []
+    rank: float = 0.0
+
+
+class CptSearchResponse(BaseModel):
+    query: str
+    count: int
+    results: list[CptSearchResult]
+    disambiguation_used: bool = False
+
+
+class ProviderRate(BaseModel):
+    payer_id: int
+    payer_name: str
+    negotiated_rate: float
+    rate_type: Optional[str] = None
+    service_setting: Optional[str] = None
+
+
+class ProviderPricing(BaseModel):
+    provider_id: int
+    provider_name: str
+    city: Optional[str] = None
+    county: Optional[str] = None
+    rates: list[ProviderRate]
+    min_rate: float
+    max_rate: float
+
+
+class ProcedureComparison(BaseModel):
+    billing_code: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    providers: list[ProviderPricing]
+    provider_count: int
+
+
+class CompareResponse(BaseModel):
+    codes_requested: list[str]
+    procedures: list[ProcedureComparison]
+    total_providers: int

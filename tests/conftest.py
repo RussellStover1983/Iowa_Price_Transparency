@@ -32,3 +32,43 @@ async def initialized_db(test_db_path):
     from db.init_db import init_database
     await init_database(test_db_path)
     return test_db_path
+
+
+@pytest_asyncio.fixture
+async def cpt_db(initialized_db):
+    """Initialized DB with CPT codes loaded (no payers/providers)."""
+    from etl.load_cpt import load_cpt_codes
+    await load_cpt_codes(initialized_db)
+    return initialized_db
+
+
+@pytest_asyncio.fixture
+async def seeded_db(initialized_db):
+    """Initialized DB with CPT codes, payers, and sample data."""
+    from etl.load_cpt import load_cpt_codes
+    from etl.seed_payers import seed_payers
+    from etl.seed_sample_data import seed_sample_data
+    await load_cpt_codes(initialized_db)
+    await seed_payers(initialized_db)
+    await seed_sample_data(initialized_db)
+    return initialized_db
+
+
+@pytest_asyncio.fixture
+async def cpt_client(cpt_db):
+    """AsyncClient against a DB with CPT codes only."""
+    from httpx import ASGITransport, AsyncClient
+    from api.main import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def client(seeded_db):
+    """AsyncClient against a fully seeded DB."""
+    from httpx import ASGITransport, AsyncClient
+    from api.main import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
