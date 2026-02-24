@@ -1,0 +1,26 @@
+{
+  "reporting_entity_name": "Test Payer",
+  "reporting_entity_type": "health insurance issuer",
+  "reporting_structure": [
+    {
+      "reporting_plans": [
+        {
+          "plan_name": "Test Plan",
+          "plan_id_type": "EIN",
+          "plan_id": "12-3456789",
+          "plan_market_type": "individual"
+        }
+      ],
+      "in_network_files": [
+        {
+          "description": "In-Network Negotiated Rates",
+          "location": "https://example.com/mrf/2024-07_in-network-rates_test.json.gz"
+        },
+        {
+          "description": "Allowed Amounts",
+          "location": "https://example.com/mrf/2024-07_allowed-amounts_test.json.gz"
+        }
+      ]
+    }
+  ]
+}

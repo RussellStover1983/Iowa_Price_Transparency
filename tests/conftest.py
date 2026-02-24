@@ -1,6 +1,7 @@
 """Shared test fixtures."""
 
 import os
+import pathlib
 import tempfile
 
 import pytest
@@ -52,6 +53,32 @@ async def seeded_db(initialized_db):
     await seed_payers(initialized_db)
     await seed_sample_data(initialized_db)
     return initialized_db
+
+
+@pytest.fixture
+def fixture_dir():
+    """Path to tests/fixtures/ directory."""
+    return pathlib.Path(__file__).parent / "fixtures"
+
+
+@pytest.fixture
+def sample_mrf_path(fixture_dir):
+    return fixture_dir / "sample_mrf.json"
+
+
+@pytest.fixture
+def sample_toc_path(fixture_dir):
+    return fixture_dir / "sample_toc.json"
+
+
+@pytest.fixture
+def async_file_bytes(fixture_dir):
+    """Factory: returns an async byte-chunk iterator from a fixture file."""
+    async def _reader(path: pathlib.Path, chunk_size: int = 8192):
+        data = path.read_bytes()
+        for i in range(0, len(data), chunk_size):
+            yield data[i:i + chunk_size]
+    return _reader
 
 
 @pytest_asyncio.fixture

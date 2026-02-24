@@ -1,0 +1,115 @@
+{
+  "reporting_entity_name": "Test Payer",
+  "reporting_entity_type": "health insurance issuer",
+  "last_updated_on": "2024-07-01",
+  "version": "1.0.0",
+  "provider_references": [
+    {
+      "provider_group_id": 1,
+      "provider_groups": [
+        {
+          "npi": [1234567890],
+          "tin": {"type": "ein", "value": "421234567"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 2,
+      "provider_groups": [
+        {
+          "npi": [9999999999],
+          "tin": {"type": "ein", "value": "999999999"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 3,
+      "provider_groups": [
+        {
+          "npi": [2345678901],
+          "tin": {"type": "ein", "value": "422345678"}
+        }
+      ]
+    }
+  ],
+  "in_network": [
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Total knee replacement",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "27447",
+      "description": "Total knee replacement (arthroplasty)",
+      "negotiated_rates": [
+        {
+          "provider_references": [1, 3],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 45000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        },
+        {
+          "provider_references": [2],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 50000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Unlisted procedure",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99999",
+      "description": "Unlisted procedure code not in our CPT lookup",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 100.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit established patient level 3",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99213",
+      "description": "Office visit established patient level 3",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 150.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
