@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+aiosqlite
+python-dotenv
+httpx
+ijson
+anthropic
+pytest
+pytest-asyncio
