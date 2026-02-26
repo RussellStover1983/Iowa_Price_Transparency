@@ -1,10 +1,13 @@
 """FastAPI application entry point."""
 
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 
-from api.routes import compare, payers, cpt
+from api.routes import compare, payers, cpt, providers
 from db.init_db import init_database
 from db.session import get_connection
 from db.models import HealthResponse
@@ -20,13 +23,25 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Iowa Price Transparency API",
     description="Compare what Iowa facilities charge for medical procedures",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.include_router(compare.router)
 app.include_router(payers.router)
 app.include_router(cpt.router)
+app.include_router(providers.router)
+
+# Serve frontend static files
+static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
+if os.path.isdir(static_dir):
+    app.mount("/app", StaticFiles(directory=static_dir, html=True), name="frontend")
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Redirect root to frontend."""
+    return RedirectResponse(url="/app")
 
 
 @app.get("/health", response_model=HealthResponse)

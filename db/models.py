@@ -100,7 +100,36 @@ class ProcedureComparison(BaseModel):
     provider_count: int
 
 
+class ProcedureStats(BaseModel):
+    billing_code: str
+    description: Optional[str] = None
+    min_rate: float
+    max_rate: float
+    median_rate: float
+    avg_rate: float
+    rate_count: int
+    provider_count: int
+    potential_savings: float
+
+
 class CompareResponse(BaseModel):
     codes_requested: list[str]
     procedures: list[ProcedureComparison]
     total_providers: int
+    stats: list[ProcedureStats] = []
+
+
+class ProviderSummary(BaseModel):
+    id: int
+    name: str
+    city: Optional[str] = None
+    county: Optional[str] = None
+    facility_type: Optional[str] = None
+    zip_code: Optional[str] = None
+    procedure_count: int = 0
+    payer_count: int = 0
+
+
+class ProvidersResponse(BaseModel):
+    count: int
+    providers: list[ProviderSummary]

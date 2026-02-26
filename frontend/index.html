@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iowa Price Transparency</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>Iowa Price Transparency</h1>
+            <p class="subtitle">Compare medical procedure prices across Iowa hospitals</p>
+            <nav>
+                <a href="#" class="nav-link active" data-page="search">Search Procedures</a>
+                <a href="#" class="nav-link" data-page="providers">Providers</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Search Page -->
+        <section id="page-search" class="page active">
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Search procedures... (e.g. knee replacement, colonoscopy, MRI)" autocomplete="off">
+                <div id="search-results" class="search-results hidden"></div>
+            </div>
+
+            <div id="selected-codes" class="selected-codes hidden">
+                <h3>Selected Procedures <span id="selected-count"></span></h3>
+                <div id="code-chips"></div>
+                <div class="compare-actions">
+                    <div class="filter-row">
+                        <select id="filter-payer">
+                            <option value="">All Payers</option>
+                        </select>
+                        <select id="filter-city">
+                            <option value="">All Cities</option>
+                        </select>
+                        <select id="filter-sort">
+                            <option value="">Default Sort</option>
+                            <option value="price_asc">Lowest Price First</option>
+                            <option value="price_desc">Highest Price First</option>
+                        </select>
+                    </div>
+                    <button id="compare-btn" class="btn-primary">Compare Prices</button>
+                </div>
+            </div>
+
+            <div id="compare-results" class="hidden">
+                <div id="stats-summary"></div>
+                <div id="procedure-cards"></div>
+            </div>
+        </section>
+
+        <!-- Providers Page -->
+        <section id="page-providers" class="page hidden">
+            <div class="provider-filters">
+                <select id="provider-city-filter">
+                    <option value="">All Cities</option>
+                </select>
+                <select id="provider-county-filter">
+                    <option value="">All Counties</option>
+                </select>
+            </div>
+            <div id="provider-list"></div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>Data sourced from CMS Transparency in Coverage MRF files. Prices are negotiated rates and may not reflect your final cost.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
