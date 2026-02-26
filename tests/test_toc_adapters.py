@@ -76,11 +76,11 @@ async def test_uhc_adapter_filters_in_network():
     """UHC adapter only returns in-network files, not allowed-amounts."""
     mock_response = MagicMock()
     mock_response.status_code = 200
-    mock_response.json.return_value = [
-        {"name": "2025-01_uhc_in-network-rates_001.json.gz"},
-        {"name": "2025-01_uhc_allowed-amount_001.json.gz"},
-        {"name": "2025-01_uhc_in-network-rates_002.json.gz"},
-    ]
+    mock_response.json.return_value = {"blobs": [
+        {"name": "2025-01_uhc_in-network-rates_001.json.gz", "downloadUrl": "https://example.com/dl1", "size": 1000},
+        {"name": "2025-01_uhc_allowed-amount_001.json.gz", "downloadUrl": "https://example.com/dl2", "size": 500},
+        {"name": "2025-01_uhc_in-network-rates_002.json.gz", "downloadUrl": "https://example.com/dl3", "size": 2000},
+    ]}
     mock_response.raise_for_status = MagicMock()
 
     mock_client = AsyncMock()
@@ -100,7 +100,10 @@ async def test_uhc_adapter_filters_in_network():
     assert len(result) == 2
     for f in result:
         assert "in-network" in f.description.lower()
-        assert "allowed-amount" not in f.url.lower()
+        assert "allowed-amount" not in f.description.lower()
+    # Sorted smallest first
+    assert "dl1" in result[0].url
+    assert "dl3" in result[1].url
 
 
 @pytest.mark.asyncio

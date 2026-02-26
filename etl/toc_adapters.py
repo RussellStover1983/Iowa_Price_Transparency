@@ -41,7 +41,7 @@ async def _uhc_get_mrf_files(payer: dict) -> list[MrfFileInfo]:
     if not api_url:
         return []
 
-    results: list[MrfFileInfo] = []
+    results: list[tuple[int, MrfFileInfo]] = []  # (size, info) for sorting
 
     async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
         # Step 1: List available blobs
@@ -53,41 +53,44 @@ async def _uhc_get_mrf_files(payer: dict) -> list[MrfFileInfo]:
             logger.error("UHC blob listing failed: %s", e)
             return []
 
-        # The API returns a list of blob entries (or a dict with a list)
+        # The API returns {"blobs": [...]} with name, downloadUrl, size
         blobs = data if isinstance(data, list) else data.get("blobs", [])
 
         for blob in blobs:
-            # blob can be a dict with "name" key, or a string
-            if isinstance(blob, dict):
-                filename = blob.get("name", blob.get("filename", ""))
-            else:
-                filename = str(blob)
-
-            if not filename:
+            if not isinstance(blob, dict):
                 continue
 
-            # Filter: only in-network files
+            filename = blob.get("name", "")
+            download_url = blob.get("downloadUrl", "")
+            if not filename or not download_url:
+                continue
+
+            # Filter: only in-network rate files (not index, not allowed-amount)
             lower = filename.lower()
+            if lower.endswith("_index.json"):
+                continue
             if "allowed-amount" in lower or "allowed_amount" in lower:
                 continue
             if "in-network" not in lower and "in_network" not in lower:
                 continue
 
-            # Step 2: Build download URL
-            # UHC download pattern: base_url/download?fn=<filename>
-            download_url = f"{api_url}download?fn={filename}"
-
-            # Use stable filename for hash (not expiring SAS/download URL)
+            # Use stable filename for hash (not the expiring SAS download URL)
             url_hash = _stable_hash(filename)
 
-            results.append(MrfFileInfo(
+            file_size = blob.get("size", 0)
+            size_mb = file_size / (1024 * 1024)
+            results.append((file_size, MrfFileInfo(
                 url=download_url,
                 url_hash=url_hash,
-                description=f"UHC: {filename}",
-            ))
+                description=f"UHC: {filename} ({size_mb:.0f} MB)",
+            )))
 
-    logger.info("UHC adapter: found %d in-network MRF files", len(results))
-    return results
+    # Sort smallest first — more practical for testing with --limit
+    results.sort(key=lambda x: x[0])
+    sorted_files = [info for _, info in results]
+
+    logger.info("UHC adapter: found %d in-network MRF files", len(sorted_files))
+    return sorted_files
 
 
 # ---------------------------------------------------------------------------

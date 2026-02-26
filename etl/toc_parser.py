@@ -75,7 +75,8 @@ async def parse_toc_from_url(toc_url: str) -> list[MrfFileInfo]:
         async with client.stream("GET", toc_url) as response:
             response.raise_for_status()
             buf = io.BytesIO()
-            if toc_url.endswith(".gz"):
+            url_path = toc_url.split("?")[0]
+            if url_path.endswith(".gz"):
                 decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     buf.write(decompressor.decompress(chunk))

@@ -103,7 +103,9 @@ class MrfStreamProcessor:
             async with httpx.AsyncClient(follow_redirects=True, timeout=600) as client:
                 async with client.stream("GET", url) as response:
                     response.raise_for_status()
-                    if url.endswith(".gz"):
+                    # Check for .gz in URL path (ignore query params like SAS tokens)
+                    url_path = url.split("?")[0]
+                    if url_path.endswith(".gz"):
                         decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
                         async for chunk in response.aiter_bytes(chunk_size=65536):
                             buf.write(decompressor.decompress(chunk))
