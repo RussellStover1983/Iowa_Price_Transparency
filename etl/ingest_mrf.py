@@ -21,7 +21,8 @@ from dotenv import load_dotenv
 
 from etl.mrf_stream import MrfStreamProcessor
 from etl.provider_match import ProviderMatcher
-from etl.toc_parser import MrfFileInfo, compute_url_hash, parse_toc_from_url
+from etl.toc_adapters import get_mrf_file_list
+from etl.toc_parser import MrfFileInfo, compute_url_hash
 
 load_dotenv()
 
@@ -69,104 +70,6 @@ async def list_payers(db_path: str | None = None) -> None:
         await db.close()
 
 
-async def process_mrf_file(
-    db: aiosqlite.Connection,
-    payer_id: int,
-    mrf_info: MrfFileInfo,
-    processor: MrfStreamProcessor,
-    dry_run: bool = False,
-) -> int:
-    """Process a single MRF file: check idempotency, stream, insert rates.
-
-    Returns the number of rate records inserted.
-    """
-    # Check idempotency
-    cursor = await db.execute(
-        "SELECT id, status FROM mrf_files WHERE payer_id = ? AND file_hash = ?",
-        (payer_id, mrf_info.url_hash),
-    )
-    existing = await cursor.fetchone()
-    if existing and existing[1] == "completed":
-        logger.info("Skipping already-completed file: %s", mrf_info.url_hash)
-        return 0
-
-    # Register file as processing
-    if not dry_run:
-        now = datetime.now(timezone.utc).isoformat()
-        if existing:
-            mrf_file_id = existing[0]
-            await db.execute(
-                "UPDATE mrf_files SET status = 'processing', error_message = NULL WHERE id = ?",
-                (mrf_file_id,),
-            )
-        else:
-            cursor = await db.execute(
-                "INSERT INTO mrf_files (payer_id, url, filename, file_hash, status, downloaded_at) "
-                "VALUES (?, ?, ?, ?, 'processing', ?)",
-                (payer_id, mrf_info.url, mrf_info.url[:200], mrf_info.url_hash, now),
-            )
-            mrf_file_id = cursor.lastrowid
-        await db.commit()
-    else:
-        mrf_file_id = None
-
-    # Stream and process
-    total_inserted = 0
-    try:
-        async for batch in processor.stream_rates_from_url(mrf_info.url):
-            if dry_run:
-                total_inserted += len(batch)
-                continue
-
-            # Batch insert into normalized_rates
-            rows = [
-                (
-                    payer_id,
-                    # Look up provider_id from NPI in the processor's iowa_npis context
-                    None,  # We'll need the matcher for this — see ingest_payer
-                    mrf_file_id,
-                    r.billing_code,
-                    r.billing_code_type,
-                    r.description,
-                    r.negotiated_rate,
-                    r.negotiated_type,
-                    r.billing_class or None,
-                )
-                for r in batch
-            ]
-            await db.executemany(
-                "INSERT INTO normalized_rates "
-                "(payer_id, provider_id, mrf_file_id, billing_code, billing_code_type, "
-                "description, negotiated_rate, rate_type, service_setting) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows,
-            )
-            await db.commit()
-            total_inserted += len(batch)
-
-        # Mark as completed
-        if not dry_run and mrf_file_id:
-            now = datetime.now(timezone.utc).isoformat()
-            await db.execute(
-                "UPDATE mrf_files SET status = 'completed', records_extracted = ?, processed_at = ? "
-                "WHERE id = ?",
-                (total_inserted, now, mrf_file_id),
-            )
-            await db.commit()
-
-    except Exception as e:
-        logger.error("Error processing MRF file %s: %s", mrf_info.url_hash, e)
-        if not dry_run and mrf_file_id:
-            await db.execute(
-                "UPDATE mrf_files SET status = 'error', error_message = ? WHERE id = ?",
-                (str(e)[:500], mrf_file_id),
-            )
-            await db.commit()
-        raise
-
-    return total_inserted
-
-
 async def ingest_payer(
     payer_short_name: str,
     db_path: str | None = None,
@@ -199,19 +102,16 @@ async def ingest_payer(
         target_codes = await get_target_cpt_codes(db)
         logger.info("Loaded %d target CPT codes", len(target_codes))
 
-        # 4. Get MRF file list
+        # 4. Get MRF file list (via payer-specific adapters)
         if url:
             mrf_files = [MrfFileInfo(
                 url=url,
                 url_hash=compute_url_hash(url),
                 description="Manual URL",
             )]
-        elif payer["toc_url"]:
-            logger.info("Parsing TOC: %s", payer["toc_url"])
-            mrf_files = await parse_toc_from_url(payer["toc_url"])
         else:
-            logger.warning("No TOC URL for payer %s", payer_short_name)
-            mrf_files = []
+            logger.info("Discovering MRF files for %s...", payer["short_name"])
+            mrf_files = await get_mrf_file_list(payer)
 
         if limit:
             mrf_files = mrf_files[:limit]

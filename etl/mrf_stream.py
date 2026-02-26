@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import io
 import logging
+import tempfile
 import zlib
 from dataclasses import dataclass, field
-from typing import AsyncIterator
+from typing import AsyncIterator, BinaryIO
 
 import ijson
 
@@ -88,30 +89,37 @@ class MrfStreamProcessor:
     async def stream_rates_from_url(
         self, url: str
     ) -> AsyncIterator[list[RateRecord]]:
-        """Stream-parse MRF JSON from an HTTP URL (supports .json.gz)."""
+        """Stream-parse MRF JSON from an HTTP URL (supports .json.gz).
+
+        Uses SpooledTemporaryFile: holds up to 256MB in RAM, spills to disk
+        beyond that. Prevents OOM on multi-GB MRF files.
+        """
         import httpx
 
-        async with httpx.AsyncClient(follow_redirects=True, timeout=300) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                if url.endswith(".gz"):
-                    buf = io.BytesIO()
-                    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
-                    async for chunk in response.aiter_bytes(chunk_size=65536):
-                        buf.write(decompressor.decompress(chunk))
-                    buf.write(decompressor.flush())
-                    buf.seek(0)
-                else:
-                    buf = io.BytesIO()
-                    async for chunk in response.aiter_bytes(chunk_size=65536):
-                        buf.write(chunk)
-                    buf.seek(0)
+        # 256MB in-memory threshold; automatically spills to disk beyond this
+        buf = tempfile.SpooledTemporaryFile(max_size=256 * 1024 * 1024)
 
-        async for batch in self._parse_stream(buf):
-            yield batch
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=600) as client:
+                async with client.stream("GET", url) as response:
+                    response.raise_for_status()
+                    if url.endswith(".gz"):
+                        decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+                        async for chunk in response.aiter_bytes(chunk_size=65536):
+                            buf.write(decompressor.decompress(chunk))
+                        buf.write(decompressor.flush())
+                    else:
+                        async for chunk in response.aiter_bytes(chunk_size=65536):
+                            buf.write(chunk)
+            buf.seek(0)
+
+            async for batch in self._parse_stream(buf):
+                yield batch
+        finally:
+            buf.close()
 
     async def _parse_stream(
-        self, source: io.BytesIO
+        self, source: BinaryIO
     ) -> AsyncIterator[list[RateRecord]]:
         """Two-phase parse: provider_references then in_network items."""
         # Phase 1: Build Iowa provider group map

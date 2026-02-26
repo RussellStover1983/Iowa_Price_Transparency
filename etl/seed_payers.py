@@ -17,14 +17,14 @@ IOWA_PAYERS = [
     {
         "name": "Wellmark Blue Cross Blue Shield",
         "short_name": "wellmark",
-        "toc_url": "https://www.wellmark.com/transparency-in-coverage",
-        "notes": "Largest Iowa commercial payer; dominant market share",
+        "toc_url": None,
+        "notes": "Largest Iowa commercial payer; no confirmed direct JSON TOC URL (HealthSparq portal only)",
     },
     {
         "name": "UnitedHealthcare",
         "short_name": "uhc",
-        "toc_url": "https://transparency-in-coverage.uhc.com/",
-        "notes": "Major national payer with significant Iowa presence",
+        "toc_url": "https://transparency-in-coverage.uhc.com/api/v1/uhc/blobs/",
+        "notes": "Azure blob API; adapter handles two-step fetch (list blobs then download URL)",
     },
     {
         "name": "Medica",
@@ -35,14 +35,14 @@ IOWA_PAYERS = [
     {
         "name": "Aetna",
         "short_name": "aetna",
-        "toc_url": "https://health1.aetna.com/app/public/#/one/insurerCode=AETNA_I&brandCode=ALICSI/machine-readable-transparency-in-coverage",
-        "notes": "National payer; CVS Health subsidiary",
+        "toc_url": "https://mrf.healthsparq.com/aetnacvs-egress.nophi.kyruushsq.com/prd/mrf/AETNACVS_I/ALICFI/{YYYY-MM-DD}/tableOfContents/{YYYY-MM-DD}_Aetna-Life-Insurance-Company_index.json.gz",
+        "notes": "Date-templated HealthSparq URL; adapter resolves current month",
     },
     {
         "name": "Cigna",
         "short_name": "cigna",
         "toc_url": "https://www.cigna.com/legal/compliance/machine-readable-files",
-        "notes": "National payer; The Cigna Group",
+        "notes": "Signed CloudFront URLs; adapter scrapes fresh TOC URL from compliance page",
     },
     {
         "name": "Delta Dental of Iowa",
@@ -78,6 +78,11 @@ async def seed_payers(db_path: str | None = None):
                 "INSERT OR IGNORE INTO payers (name, short_name, toc_url, state_filter, notes) "
                 "VALUES (?, ?, ?, 'IA', ?)",
                 (payer["name"], payer["short_name"], payer["toc_url"], payer["notes"]),
+            )
+            # Update existing rows with latest TOC URL and notes
+            await db.execute(
+                "UPDATE payers SET toc_url = ?, notes = ? WHERE short_name = ?",
+                (payer["toc_url"], payer["notes"], payer["short_name"]),
             )
 
         await db.commit()
