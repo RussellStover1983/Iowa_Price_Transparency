@@ -22,7 +22,7 @@ DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/iowa_transparency.db")
 
 logger = logging.getLogger(__name__)
 
-NPPES_API_URL = "https://npiregistry.cms.hhs.gov/api/?version=2.1"
+NPPES_API_URL = "https://npiregistry.cms.hhs.gov/api/"
 
 # Hospital taxonomy codes
 TAXONOMY_CODES = [
@@ -47,9 +47,10 @@ async def _fetch_npis_for_taxonomy(
 
     while True:
         params = {
+            "version": "2.1",
             "enumeration_type": "NPI-2",  # Organizations only
             "state": "IA",
-            "taxonomy_description": taxonomy_code,
+            "taxonomy_description": taxonomy_label,  # API expects text, not code
             "limit": PAGE_LIMIT,
             "skip": skip,
         }
