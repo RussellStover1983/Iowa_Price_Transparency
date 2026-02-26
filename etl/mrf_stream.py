@@ -118,31 +118,44 @@ class MrfStreamProcessor:
         iowa_groups: dict[int, list[tuple[str, str]]] = {}
         # {group_id: [(npi, tin), ...]} — only groups containing at least one Iowa NPI
 
+        # Tracking state for the current provider_references item
+        current_group_id: int | None = None
+        current_group_npis: list[tuple[str, str]] = []
+        # Tracking state for the current provider_groups sub-item
+        current_entry_npis: list[str] = []
+        current_tin: str = ""
+
         try:
             for prefix, event, value in ijson.parse(source):
-                # provider_references.item.provider_group_id
-                if prefix == "provider_references.item.provider_group_id":
-                    current_group_id = int(value)
-                    current_group_npis: list[tuple[str, str]] = []
-                    has_iowa = False
+                if prefix == "provider_references.item" and event == "start_map":
+                    # New provider_reference — reset group-level state
+                    current_group_id = None
+                    current_group_npis = []
                     self.result.provider_groups_total += 1
 
+                elif prefix == "provider_references.item.provider_group_id":
+                    current_group_id = int(value)
+
+                elif prefix == "provider_references.item.provider_groups.item" and event == "start_map":
+                    # New provider_groups entry — reset entry-level state
+                    current_entry_npis = []
+                    current_tin = ""
+
                 elif prefix == "provider_references.item.provider_groups.item.npi.item":
-                    current_npi = str(int(value))
-                    if current_npi in self.iowa_npis:
-                        has_iowa = True
+                    current_entry_npis.append(str(int(value)))
 
                 elif prefix == "provider_references.item.provider_groups.item.tin.value":
                     current_tin = str(value)
 
                 elif prefix == "provider_references.item.provider_groups.item" and event == "end_map":
-                    # End of one provider_groups entry — check if the NPI was Iowa
-                    if has_iowa:
-                        current_group_npis.append((current_npi, current_tin))
+                    # End of one provider_groups entry — collect Iowa NPIs
+                    for npi in current_entry_npis:
+                        if npi in self.iowa_npis:
+                            current_group_npis.append((npi, current_tin))
 
                 elif prefix == "provider_references.item" and event == "end_map":
-                    # End of one provider_reference entry
-                    if current_group_npis:
+                    # End of one provider_reference — save if it has Iowa NPIs
+                    if current_group_npis and current_group_id is not None:
                         iowa_groups[current_group_id] = current_group_npis
                         self.result.iowa_provider_groups += 1
 

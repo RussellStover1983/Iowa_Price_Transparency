@@ -2,8 +2,9 @@
 
 Run directly: python -m etl.seed_sample_data
 
-Generates deterministic synthetic data (random.seed(42)) for 10 Iowa providers
-with ~500-800 rate rows across 3-5 payers per provider.
+Generates deterministic synthetic data (random.seed(42)) for 12 Iowa providers
+with rate rows across 3-5 payers per provider. High-interest procedures
+(knee scope, knee replacement, colonoscopy, etc.) appear at every facility.
 """
 
 import asyncio
@@ -108,6 +109,43 @@ IOWA_PROVIDERS = [
         "county": "Wright",
         "zip_code": "50525",
     },
+    {
+        "npi": "1122334455",
+        "tin": "431122334",
+        "name": "MercyOne Siouxland Medical Center",
+        "facility_type": "hospital",
+        "city": "Sioux City",
+        "county": "Woodbury",
+        "zip_code": "51104",
+    },
+    {
+        "npi": "2233445566",
+        "tin": "432233445",
+        "name": "UnityPoint Health Trinity Regional Medical Center",
+        "facility_type": "hospital",
+        "city": "Fort Dodge",
+        "county": "Webster",
+        "zip_code": "50501",
+    },
+]
+
+# High-interest procedures that every provider should have rates for
+GUARANTEED_CODES = [
+    "29881",  # knee scope
+    "27447",  # total knee replacement
+    "27130",  # total hip replacement
+    "45378",  # colonoscopy
+    "45385",  # colonoscopy with polypectomy
+    "99213",  # office visit level 3
+    "99214",  # office visit level 4
+    "74177",  # CT abdomen/pelvis
+    "70553",  # MRI brain
+    "47562",  # laparoscopic cholecystectomy
+    "59400",  # vaginal delivery
+    "59510",  # C-section
+    "66984",  # cataract surgery
+    "93306",  # echocardiogram
+    "77067",  # mammogram
 ]
 
 # Price ranges (min, max) by CPT category
@@ -191,11 +229,17 @@ async def seed_sample_data(db_path: str | None = None):
             print("No CPT codes found — run etl.load_cpt first")
             return
 
+        # Build lookup for guaranteed codes
+        cpt_by_code = {row["code"]: row for row in cpt_codes}
+        guaranteed = [cpt_by_code[c] for c in GUARANTEED_CODES if c in cpt_by_code]
+        non_guaranteed = [row for row in cpt_codes if row["code"] not in GUARANTEED_CODES]
+
         rate_count = 0
         for provider in providers:
-            # Each provider gets rates for 20-30 random CPT codes
-            num_codes = rng.randint(20, 30)
-            selected_codes = rng.sample(list(cpt_codes), min(num_codes, len(cpt_codes)))
+            # Every provider gets all guaranteed codes + 15-20 random others
+            num_extra = rng.randint(15, 20)
+            extras = rng.sample(non_guaranteed, min(num_extra, len(non_guaranteed)))
+            selected_codes = guaranteed + extras
 
             # Each provider contracts with 3-5 payers
             num_payers = rng.randint(3, 5)

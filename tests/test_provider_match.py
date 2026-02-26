@@ -22,7 +22,7 @@ async def test_cache_loads_all_iowa_npis(matcher_db):
     from etl.provider_match import ProviderMatcher
     matcher = ProviderMatcher()
     await matcher.load_cache(matcher_db)
-    assert matcher.npi_count == 10
+    assert matcher.npi_count == 12
 
 
 @pytest.mark.asyncio
