@@ -260,24 +260,33 @@ async def peek_mrf_file(
                 content_type = response.headers.get("content-type", "")
                 content_length = response.headers.get("content-length", "unknown")
 
-                # Read first 64KB compressed
+                # Read first 512KB compressed (enough to see in_network items)
                 compressed_bytes = b""
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     compressed_bytes += chunk
-                    if len(compressed_bytes) >= 65536:
+                    if len(compressed_bytes) >= 512 * 1024:
                         break
 
-                # Try decompressing
+                # Try decompressing (handle multi-member gzip)
                 url_path = target.url.split("?")[0]
                 if url_path.endswith(".gz"):
                     try:
                         decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
-                        decompressed = decompressor.decompress(compressed_bytes)
-                        preview = decompressed[:4096].decode("utf-8", errors="replace")
+                        decompressed = b""
+                        data = compressed_bytes
+                        while data:
+                            decompressed += decompressor.decompress(data)
+                            if decompressor.eof:
+                                data = decompressor.unused_data
+                                decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+                            else:
+                                break
+                        decompressed += decompressor.flush()
+                        preview = decompressed[:32768].decode("utf-8", errors="replace")
                     except Exception as e:
                         preview = f"Decompression error: {e}. Raw first 200 bytes: {compressed_bytes[:200]!r}"
                 else:
-                    preview = compressed_bytes[:4096].decode("utf-8", errors="replace")
+                    preview = compressed_bytes[:32768].decode("utf-8", errors="replace")
 
     except Exception as e:
         return {"error": f"Download failed: {e}", "file": target.description}
@@ -324,15 +333,23 @@ async def peek_mrf_file(
     except Exception:
         pass
 
+    # Find a sample negotiated_prices entry in the preview
+    neg_prices_sample = ""
+    np_idx = preview.find("negotiated_prices")
+    if np_idx >= 0:
+        # Grab 500 chars around it
+        neg_prices_sample = preview[max(0, np_idx - 50):np_idx + 500]
+
     return {
         "file": target.description,
         "url_hash": target.url_hash,
         "content_type": content_type,
         "content_length": content_length,
         "compressed_bytes_read": len(compressed_bytes),
-        "preview_length": len(preview),
+        "decompressed_preview_length": len(preview),
         "top_level_keys": top_keys[:20],
         "preview_first_500": preview[:500],
+        "negotiated_prices_sample": neg_prices_sample,
     }
 
 
