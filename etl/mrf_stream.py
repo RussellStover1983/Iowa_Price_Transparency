@@ -119,10 +119,19 @@ class MrfStreamProcessor:
                     # Check for .gz in URL path (ignore query params like SAS tokens)
                     url_path = url.split("?")[0]
                     if url_path.endswith(".gz"):
+                        # Handle multi-member gzip (concatenated gzip streams)
                         decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
                         async for chunk in response.aiter_bytes(chunk_size=65536):
                             downloaded_bytes += len(chunk)
-                            buf.write(decompressor.decompress(chunk))
+                            data = chunk
+                            while data:
+                                buf.write(decompressor.decompress(data))
+                                if decompressor.eof:
+                                    # Gzip member ended — check for more members
+                                    data = decompressor.unused_data
+                                    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+                                else:
+                                    break
                         buf.write(decompressor.flush())
                     else:
                         async for chunk in response.aiter_bytes(chunk_size=65536):
