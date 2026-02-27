@@ -110,9 +110,9 @@ async def test_uhc_adapter_filters_in_network():
 async def test_default_adapter_falls_through():
     """Unknown payer with a TOC URL uses the default parse_toc_from_url."""
     payer = {
-        "short_name": "medica",
+        "short_name": "delta_dental",
         "toc_url": "https://example.com/toc.json",
-        "name": "Medica",
+        "name": "Delta Dental",
     }
 
     with patch("etl.toc_adapters.parse_toc_from_url", new_callable=AsyncMock) as mock_parse:
@@ -124,3 +124,91 @@ async def test_default_adapter_falls_through():
 
     assert len(result) == 1
     mock_parse.assert_awaited_once_with("https://example.com/toc.json")
+
+
+@pytest.mark.asyncio
+async def test_aetna_adapter_uses_metadata():
+    """Aetna adapter fetches latest_metadata.json and finds TOC files."""
+    metadata = {"files": [
+        {
+            "fileSchema": "TABLE_OF_CONTENTS",
+            "reportingEntityName": "Aetna Health of Iowa Inc.",
+            "filePath": "2026-02-05/tableOfContents/2026-02-05_Aetna-Health-of-Iowa-Inc-_index.json.gz",
+        },
+        {
+            "fileSchema": "IN_NETWORK_RATES",
+            "reportingEntityName": "Aetna Life Insurance Company",
+            "filePath": "2026-02-05/inNetworkRates/plan1.json.gz",
+            "fileName": "plan1.json.gz",
+        },
+    ]}
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = metadata
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    payer = {
+        "short_name": "aetna",
+        "toc_url": "https://example.com/{YYYY-MM-DD}/index.json.gz",
+        "name": "Aetna",
+    }
+
+    from etl.toc_parser import MrfFileInfo
+    with patch("etl.toc_adapters.httpx.AsyncClient", return_value=mock_client), \
+         patch("etl.toc_adapters.parse_toc_from_url", new_callable=AsyncMock) as mock_parse:
+        mock_parse.return_value = [
+            MrfFileInfo(url="https://example.com/mrf1.json.gz", url_hash="x1", description="Iowa MRF")
+        ]
+        result = await get_mrf_file_list(payer)
+
+    # Should have used Iowa TOC URL
+    assert len(result) == 1
+    call_url = mock_parse.call_args[0][0]
+    assert "Aetna-Health-of-Iowa" in call_url
+
+
+@pytest.mark.asyncio
+async def test_cigna_adapter_decodes_html_entities():
+    """Cigna adapter decodes &amp; in scraped URLs."""
+    import html as html_mod
+    page = (
+        '<a href="https://d25kgz5rikkq4n.cloudfront.net/cost_transparency/mrf/'
+        'table-of-contents/reporting_month=2026-03/2026-03-01_cigna_index.json'
+        '?Expires=123&amp;Policy=abc&amp;Signature=xyz&amp;Key-Pair-Id=K1">TOC</a>'
+    )
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = page
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    payer = {
+        "short_name": "cigna",
+        "toc_url": "https://www.cigna.com/legal/compliance/machine-readable-files",
+        "name": "Cigna",
+    }
+
+    from etl.toc_parser import MrfFileInfo
+    with patch("etl.toc_adapters.httpx.AsyncClient", return_value=mock_client), \
+         patch("etl.toc_adapters.parse_toc_from_url", new_callable=AsyncMock) as mock_parse:
+        mock_parse.return_value = [
+            MrfFileInfo(url="https://example.com/mrf.json", url_hash="c1", description="Cigna MRF")
+        ]
+        result = await get_mrf_file_list(payer)
+
+    assert len(result) == 1
+    # Verify the URL passed to parse_toc_from_url has & not &amp;
+    call_url = mock_parse.call_args[0][0]
+    assert "&amp;" not in call_url
+    assert "?Expires=123&Policy=abc&Signature=xyz" in call_url

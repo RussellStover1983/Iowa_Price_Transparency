@@ -29,14 +29,14 @@ IOWA_PAYERS = [
     {
         "name": "Medica",
         "short_name": "medica",
-        "toc_url": "https://www.medica.com/transparency-in-coverage",
-        "notes": "Regional payer; strong in Iowa and Minnesota",
+        "toc_url": "https://mrf.healthsparq.com/medica-egress.nophi.kyruushsq.com/prd/mrf/MEDICA_I/MEDICA",
+        "notes": "HealthSparq GCS bucket; adapter probes known Iowa plan files; ZIP format",
     },
     {
         "name": "Aetna",
         "short_name": "aetna",
         "toc_url": "https://mrf.healthsparq.com/aetnacvs-egress.nophi.kyruushsq.com/prd/mrf/AETNACVS_I/ALICFI/{YYYY-MM-DD}/tableOfContents/{YYYY-MM-DD}_Aetna-Life-Insurance-Company_index.json.gz",
-        "notes": "Date-templated HealthSparq URL; adapter resolves current month",
+        "notes": "Adapter uses latest_metadata.json; falls back to date-templated URL",
     },
     {
         "name": "Cigna",
