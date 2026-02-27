@@ -22,5 +22,5 @@ ENV DATABASE_PATH=/data/iowa_transparency.db
 ENV ENVIRONMENT=production
 EXPOSE 8000
 COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 CMD ["./entrypoint.sh"]
