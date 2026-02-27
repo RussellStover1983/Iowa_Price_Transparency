@@ -1,5 +1,6 @@
 """Compare endpoint — prices for procedures across Iowa facilities."""
 
+import json
 import re
 import statistics
 from collections import defaultdict
@@ -77,7 +78,7 @@ async def compare_prices(
         f"SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
         f"p.id AS provider_id, p.name AS provider_name, p.city, p.county, "
         f"py.id AS payer_id, py.name AS payer_name, py.short_name AS payer_short, "
-        f"cl.description AS cpt_description, cl.category "
+        f"cl.description AS cpt_description, cl.category, cl.common_names "
         f"FROM normalized_rates nr "
         f"JOIN providers p ON nr.provider_id = p.id "
         f"JOIN payers py ON nr.payer_id = py.id "
@@ -108,11 +109,19 @@ async def compare_prices(
         payer_short = row[10]
         cpt_description = row[11]
         category = row[12]
+        raw_common_names = row[13]
 
         if billing_code not in code_info:
+            common_names = []
+            if raw_common_names:
+                try:
+                    common_names = json.loads(raw_common_names)
+                except (json.JSONDecodeError, TypeError):
+                    common_names = []
             code_info[billing_code] = {
                 "description": cpt_description,
                 "category": category,
+                "common_names": common_names,
             }
 
         provider_data = code_provider_rates[billing_code][provider_id]
@@ -140,7 +149,7 @@ async def compare_prices(
 
     for code in unique_codes:
         providers_for_code = code_provider_rates.get(code, {})
-        info = code_info.get(code, {"description": None, "category": None})
+        info = code_info.get(code, {"description": None, "category": None, "common_names": []})
 
         provider_list = []
         all_rates_for_code = []
@@ -172,6 +181,7 @@ async def compare_prices(
                 billing_code=code,
                 description=info["description"],
                 category=info["category"],
+                common_names=info.get("common_names", []),
                 providers=provider_list,
                 provider_count=len(provider_list),
             )

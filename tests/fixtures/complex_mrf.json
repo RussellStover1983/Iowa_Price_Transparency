@@ -1,0 +1,189 @@
+{
+  "reporting_entity_name": "Test Complex Payer",
+  "reporting_entity_type": "health insurance issuer",
+  "last_updated_on": "2024-07-01",
+  "version": "1.0.0",
+  "provider_references": [
+    {
+      "provider_group_id": 10,
+      "provider_groups": [
+        {
+          "npi": [1234567890],
+          "tin": {"type": "ein", "value": "421234567"}
+        },
+        {
+          "npi": [2345678901],
+          "tin": {"type": "ein", "value": "422345678"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 20,
+      "provider_groups": [
+        {
+          "npi": [1234567890],
+          "tin": {"type": "ein", "value": "421234567"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 30,
+      "provider_groups": [
+        {
+          "npi": [9999999999],
+          "tin": {"type": "ein", "value": "999999999"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 40,
+      "provider_groups": [
+        {
+          "npi": [3456789012],
+          "tin": {"type": "ein", "value": "423456789"}
+        }
+      ]
+    }
+  ],
+  "in_network": [
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Total knee replacement",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "27447",
+      "description": "Total knee replacement (arthroplasty)",
+      "negotiated_rates": [
+        {
+          "provider_references": [10],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 45000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            },
+            {
+              "negotiated_type": "fee schedule",
+              "negotiated_rate": 38000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Total knee replacement alt",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "27447",
+      "description": "Total knee replacement alternative rate",
+      "negotiated_rates": [
+        {
+          "provider_references": [20, 40],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 42000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit established patient level 3",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99213",
+      "description": "Office visit established patient level 3",
+      "negotiated_rates": [
+        {
+          "provider_references": [10, 30],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 150.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Unlisted procedure",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99999",
+      "description": "Non-target code should be filtered out",
+      "negotiated_rates": [
+        {
+          "provider_references": [10],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 100.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Colonoscopy",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "45378",
+      "description": "Colonoscopy diagnostic non-Iowa only",
+      "negotiated_rates": [
+        {
+          "provider_references": [30],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 2000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Colonoscopy diagnostic",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "45378",
+      "description": "Colonoscopy diagnostic Iowa provider",
+      "negotiated_rates": [
+        {
+          "provider_references": [40],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 1800.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -75,6 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_rates_billing_payer
     ON normalized_rates(billing_code, payer_id);
 CREATE INDEX IF NOT EXISTS idx_rates_billing_provider_payer
     ON normalized_rates(billing_code, provider_id, payer_id);
+CREATE INDEX IF NOT EXISTS idx_rates_provider_billing
+    ON normalized_rates(provider_id, billing_code);
 
 CREATE TABLE IF NOT EXISTS cpt_lookup (
     code TEXT PRIMARY KEY,

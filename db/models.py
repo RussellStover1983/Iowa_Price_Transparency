@@ -96,6 +96,7 @@ class ProcedureComparison(BaseModel):
     billing_code: str
     description: Optional[str] = None
     category: Optional[str] = None
+    common_names: list[str] = []
     providers: list[ProviderPricing]
     provider_count: int
 
@@ -133,3 +134,65 @@ class ProviderSummary(BaseModel):
 class ProvidersResponse(BaseModel):
     count: int
     providers: list[ProviderSummary]
+
+
+class PaginatedProvidersResponse(ProvidersResponse):
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+# --- Phase 5 response models ---
+
+
+class CoverageStats(BaseModel):
+    total_providers: int
+    total_payers: int
+    total_procedures: int
+    total_rates: int
+    last_updated: Optional[str] = None
+    db_size_bytes: int = 0
+
+
+class ProviderProcedureRate(BaseModel):
+    payer_id: int
+    payer_name: str
+    negotiated_rate: float
+    rate_type: Optional[str] = None
+    service_setting: Optional[str] = None
+
+
+class ProviderProcedure(BaseModel):
+    billing_code: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    rates: list[ProviderProcedureRate]
+    min_rate: float
+    max_rate: float
+    avg_rate: float
+    payer_count: int
+
+
+class ProviderProceduresResponse(BaseModel):
+    provider_id: int
+    provider_name: str
+    procedures: list[ProviderProcedure]
+    total: int = 0
+    limit: int = 50
+    offset: int = 0
+
+
+class ProcedureStatsDetail(BaseModel):
+    billing_code: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    min_rate: float
+    max_rate: float
+    median_rate: float
+    avg_rate: float
+    p25_rate: float
+    p75_rate: float
+    rate_count: int
+    provider_count: int
+    payer_count: int
+    potential_savings: float

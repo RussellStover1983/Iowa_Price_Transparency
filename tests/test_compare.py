@@ -91,3 +91,37 @@ async def test_total_providers_consistent(client):
         for provider in proc["providers"]:
             all_provider_ids.add(provider["provider_id"])
     assert data["total_providers"] == len(all_provider_ids)
+
+
+@pytest.mark.asyncio
+async def test_stats_math_consistency(client):
+    """min <= median <= max, potential_savings = max - min for every stat."""
+    response = await client.get("/v1/compare", params={"codes": "27447,45378,99213"})
+    assert response.status_code == 200
+    data = response.json()
+
+    for stat in data["stats"]:
+        assert stat["min_rate"] <= stat["median_rate"] <= stat["max_rate"], (
+            f"Code {stat['billing_code']}: min={stat['min_rate']}, "
+            f"median={stat['median_rate']}, max={stat['max_rate']}"
+        )
+        assert stat["potential_savings"] == round(
+            stat["max_rate"] - stat["min_rate"], 2
+        ), f"Code {stat['billing_code']}: savings mismatch"
+        assert stat["avg_rate"] >= stat["min_rate"]
+        assert stat["avg_rate"] <= stat["max_rate"]
+
+
+@pytest.mark.asyncio
+async def test_stats_rate_count_matches_providers(client):
+    """rate_count == sum of all provider rate lists for each procedure."""
+    response = await client.get("/v1/compare", params={"codes": "27447,45378"})
+    assert response.status_code == 200
+    data = response.json()
+
+    for proc, stat in zip(data["procedures"], data["stats"]):
+        total_rates = sum(len(p["rates"]) for p in proc["providers"])
+        assert stat["rate_count"] == total_rates, (
+            f"Code {proc['billing_code']}: stat rate_count={stat['rate_count']}, "
+            f"actual={total_rates}"
+        )

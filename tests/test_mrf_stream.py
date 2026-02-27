@@ -13,6 +13,8 @@ FIXTURE_DIR = pathlib.Path(__file__).parent / "fixtures"
 IOWA_NPIS = {"1234567890", "2345678901"}
 # Target CPT codes in our lookup
 TARGET_CODES = {"27447", "99213", "45378"}
+# Iowa NPIs for complex fixture (includes NPI from group 40)
+COMPLEX_IOWA_NPIS = {"1234567890", "2345678901", "3456789012"}
 
 
 async def _bytes_from_file(path: pathlib.Path):
@@ -125,3 +127,54 @@ async def test_empty_file_produces_no_rates():
     assert len(records) == 0
     assert processor.result.total_in_network_items == 0
     assert len(processor.result.errors) == 0
+
+
+# --- Complex fixture tests ---
+
+
+@pytest.mark.asyncio
+async def test_parse_result_stats_complex(complex_mrf_path):
+    """Verify all MrfParseResult counters against complex fixture."""
+    processor = MrfStreamProcessor(
+        iowa_npis=COMPLEX_IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    await _collect_rates(processor, _bytes_from_file(complex_mrf_path))
+    r = processor.result
+    assert r.provider_groups_total == 4
+    assert r.iowa_provider_groups == 3  # groups 10, 20, 40 have Iowa NPIs
+    assert r.total_in_network_items == 6
+    assert r.matched_cpt_items == 5  # code 99999 filtered out
+    assert r.iowa_rates_extracted == 9
+    assert len(r.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_npi_appears_per_group_reference(complex_mrf_path):
+    """Same NPI in two referenced groups produces duplicate records."""
+    processor = MrfStreamProcessor(
+        iowa_npis=COMPLEX_IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    records = await _collect_rates(processor, _bytes_from_file(complex_mrf_path))
+
+    # 99213 references groups [10, 30]. Group 10 has NPIs 1234567890 and 2345678901.
+    # Group 30 is non-Iowa (9999999999), filtered out.
+    office_records = [r for r in records if r.billing_code == "99213"]
+    assert len(office_records) == 2
+    npis = {r.npi for r in office_records}
+    assert npis == {"1234567890", "2345678901"}
+
+
+@pytest.mark.asyncio
+async def test_multiple_negotiated_rates_entries(complex_mrf_path):
+    """Code 27447 has two in_network items — both are processed."""
+    processor = MrfStreamProcessor(
+        iowa_npis=COMPLEX_IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    records = await _collect_rates(processor, _bytes_from_file(complex_mrf_path))
+
+    knee_records = [r for r in records if r.billing_code == "27447"]
+    # Item 1: 2 NPIs x 2 prices = 4, Item 2: 2 NPIs x 1 price = 2 → total 6
+    assert len(knee_records) == 6
+    descriptions = {r.description for r in knee_records}
+    assert "Total knee replacement (arthroplasty)" in descriptions
+    assert "Total knee replacement alternative rate" in descriptions

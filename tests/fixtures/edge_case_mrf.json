@@ -1,0 +1,107 @@
+{
+  "reporting_entity_name": "Test Edge Case Payer",
+  "reporting_entity_type": "health insurance issuer",
+  "last_updated_on": "2024-07-01",
+  "version": "1.0.0",
+  "provider_references": [
+    {
+      "provider_group_id": 1,
+      "provider_groups": [
+        {
+          "npi": [1234567890],
+          "tin": {"type": "ein", "value": "421234567"}
+        }
+      ]
+    }
+  ],
+  "in_network": [
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit zero rate",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99213",
+      "description": "Office visit with zero negotiated rate",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 0.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Total knee replacement high precision",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "27447",
+      "description": "High precision float rate",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 150000.50,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Colonoscopy integer rate",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "45378",
+      "description": "Integer rate that must coerce to float",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 100,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit empty optionals",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99213",
+      "description": "Rate with empty optional fields",
+      "negotiated_rates": [
+        {
+          "provider_references": [1],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 75.00,
+              "expiration_date": "2025-12-31",
+              "service_code": [],
+              "billing_class": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
