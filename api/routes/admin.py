@@ -209,6 +209,133 @@ async def discover_mrf_files(
     return result
 
 
+@router.get("/admin/peek-mrf")
+async def peek_mrf_file(
+    token: str = Query(..., description="Admin token"),
+    payer: str = Query(..., description="Payer short_name"),
+    search: str = Query(..., description="Filter keyword to find specific file"),
+):
+    """Download first 4KB of a discovered MRF file to inspect its JSON structure.
+
+    Useful for diagnosing parse errors (Schema 2.0, different structure, etc.).
+    """
+    import zlib
+    import httpx
+    from etl.toc_adapters import get_mrf_file_list
+
+    _verify_token(token)
+
+    # Look up payer
+    db_conn = None
+    try:
+        db_conn = await aiosqlite.connect(os.getenv("DATABASE_PATH", DATABASE_PATH))
+        db_conn.row_factory = aiosqlite.Row
+        cursor = await db_conn.execute(
+            "SELECT id, name, short_name, toc_url FROM payers WHERE short_name = ?",
+            (payer,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Unknown payer: {payer}")
+        payer_dict = {"id": row[0], "name": row[1], "short_name": row[2], "toc_url": row[3]}
+    finally:
+        if db_conn:
+            await db_conn.close()
+
+    # Discover and filter files
+    files = await get_mrf_file_list(payer_dict)
+    search_lower = search.lower()
+    files = [f for f in files if search_lower in f.description.lower()]
+    if not files:
+        return {"error": f"No files matching '{search}'", "total_before_filter": len(files)}
+
+    target = files[0]
+
+    # Download first ~64KB (compressed) and decompress
+    timeout = httpx.Timeout(connect=15.0, read=15.0, write=10.0, pool=None)
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+            async with client.stream("GET", target.url) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "")
+                content_length = response.headers.get("content-length", "unknown")
+
+                # Read first 64KB compressed
+                compressed_bytes = b""
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    compressed_bytes += chunk
+                    if len(compressed_bytes) >= 65536:
+                        break
+
+                # Try decompressing
+                url_path = target.url.split("?")[0]
+                if url_path.endswith(".gz"):
+                    try:
+                        decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
+                        decompressed = decompressor.decompress(compressed_bytes)
+                        preview = decompressed[:4096].decode("utf-8", errors="replace")
+                    except Exception as e:
+                        preview = f"Decompression error: {e}. Raw first 200 bytes: {compressed_bytes[:200]!r}"
+                else:
+                    preview = compressed_bytes[:4096].decode("utf-8", errors="replace")
+
+    except Exception as e:
+        return {"error": f"Download failed: {e}", "file": target.description}
+
+    # Extract top-level keys from the JSON preview
+    top_keys = []
+    try:
+        import json
+        # Find matching bracket depth
+        partial_json = preview
+        if partial_json.strip().startswith("{"):
+            # Count top-level keys
+            depth = 0
+            current_key = ""
+            in_string = False
+            escape_next = False
+            for ch in partial_json:
+                if escape_next:
+                    escape_next = False
+                    continue
+                if ch == '\\':
+                    escape_next = True
+                    continue
+                if ch == '"' and not escape_next:
+                    in_string = not in_string
+                    continue
+                if not in_string:
+                    if ch == '{':
+                        depth += 1
+                    elif ch == '}':
+                        depth -= 1
+                    elif ch == ':' and depth == 1:
+                        # Found a top-level key
+                        key = current_key.strip().strip('"')
+                        if key:
+                            top_keys.append(key)
+                        current_key = ""
+                        continue
+                    elif ch == ',' and depth == 1:
+                        current_key = ""
+                        continue
+                if depth == 1 and not in_string:
+                    current_key += ch
+    except Exception:
+        pass
+
+    return {
+        "file": target.description,
+        "url_hash": target.url_hash,
+        "content_type": content_type,
+        "content_length": content_length,
+        "compressed_bytes_read": len(compressed_bytes),
+        "preview_length": len(preview),
+        "top_level_keys": top_keys[:20],
+        "preview_first_500": preview[:500],
+    }
+
+
 @router.post("/admin/reset-mrf-files")
 async def reset_mrf_files(
     token: str = Query(..., description="Admin token"),
