@@ -133,6 +133,7 @@ async def list_jobs(
 async def discover_mrf_files(
     token: str = Query(..., description="Admin token"),
     payer: str = Query(..., description="Payer short_name"),
+    search: str = Query(None, description="Filter files by keyword in description (e.g. 'iowa')"),
     test_url: bool = Query(False, description="Test HEAD request on first discovered URL"),
     db: aiosqlite.Connection = Depends(get_db),
 ):
@@ -162,10 +163,16 @@ async def discover_mrf_files(
     except Exception as e:
         return {"error": f"Discovery failed: {e}", "payer": payer_dict}
 
+    # Optional keyword filter
+    if search:
+        search_lower = search.lower()
+        files = [f for f in files if search_lower in f.description.lower()]
+
     result = {
         "payer": payer_dict["name"],
         "toc_url": payer_dict["toc_url"][:100] if payer_dict["toc_url"] else None,
         "files_found": len(files),
+        "search": search,
         "files": [
             {
                 "description": f.description,
