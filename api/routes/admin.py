@@ -69,8 +69,8 @@ def _run_subprocess(cmd: list[str], job: dict, timeout: int = 3600) -> None:
             cmd, capture_output=True, text=True, timeout=timeout,
         )
         job["exit_code"] = result.returncode
-        job["stdout"] = result.stdout[-2000:] if result.stdout else ""
-        job["stderr"] = result.stderr[-2000:] if result.stderr else ""
+        job["stdout"] = result.stdout[-5000:] if result.stdout else ""
+        job["stderr"] = result.stderr[-10000:] if result.stderr else ""
         if result.returncode == 0:
             job["status"] = "completed"
             logger.info("ETL job %s completed. stdout: %s", job["task"], result.stdout[-500:])
