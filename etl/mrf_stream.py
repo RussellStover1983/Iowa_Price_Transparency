@@ -99,21 +99,57 @@ class MrfStreamProcessor:
         # 256MB in-memory threshold; automatically spills to disk beyond this
         buf = tempfile.SpooledTemporaryFile(max_size=256 * 1024 * 1024)
 
+        # Use per-operation timeouts: 60s connect, 30s read per chunk, no total pool limit
+        timeout = httpx.Timeout(connect=60.0, read=120.0, write=30.0, pool=None)
+
         try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=600) as client:
+            downloaded_bytes = 0
+            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
                 async with client.stream("GET", url) as response:
                     response.raise_for_status()
+                    content_type = response.headers.get("content-type", "")
+
+                    # Detect HTML error pages (expired SAS tokens, 403 pages, etc.)
+                    if "text/html" in content_type:
+                        raise ValueError(
+                            f"Expected JSON but got HTML (content-type: {content_type}). "
+                            f"The download URL may have expired."
+                        )
+
                     # Check for .gz in URL path (ignore query params like SAS tokens)
                     url_path = url.split("?")[0]
                     if url_path.endswith(".gz"):
                         decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
                         async for chunk in response.aiter_bytes(chunk_size=65536):
+                            downloaded_bytes += len(chunk)
                             buf.write(decompressor.decompress(chunk))
                         buf.write(decompressor.flush())
                     else:
                         async for chunk in response.aiter_bytes(chunk_size=65536):
+                            downloaded_bytes += len(chunk)
                             buf.write(chunk)
+
+            buf.seek(0, 2)  # seek to end
+            decompressed_size = buf.tell()
             buf.seek(0)
+
+            logger.info(
+                "Download complete: %d MB downloaded, %d MB decompressed",
+                downloaded_bytes // (1024 * 1024),
+                decompressed_size // (1024 * 1024),
+            )
+
+            # Sanity check: file should start with '{' (JSON object)
+            first_bytes = buf.read(100)
+            buf.seek(0)
+            if not first_bytes:
+                raise ValueError("Downloaded file is empty (0 bytes)")
+            first_char = first_bytes.lstrip()[:1]
+            if first_char and first_char not in (b'{', b'['):
+                preview = first_bytes[:80].decode("utf-8", errors="replace")
+                raise ValueError(
+                    f"Downloaded file does not look like JSON. First bytes: {preview!r}"
+                )
 
             async for batch in self._parse_stream(buf):
                 yield batch
@@ -206,14 +242,24 @@ class MrfStreamProcessor:
 
                 # Process negotiated_rates
                 for neg_rate_entry in item.get("negotiated_rates", []):
-                    # Get provider_references for this rate entry
-                    prov_refs = neg_rate_entry.get("provider_references", [])
-                    # Find Iowa NPIs from referenced groups
                     iowa_npi_tin_pairs: list[tuple[str, str]] = []
+
+                    # Pattern 1: provider_references (integer IDs → top-level groups)
+                    prov_refs = neg_rate_entry.get("provider_references", [])
                     for ref_id in prov_refs:
                         ref_id = int(ref_id)
                         if ref_id in iowa_groups:
                             iowa_npi_tin_pairs.extend(iowa_groups[ref_id])
+
+                    # Pattern 2: inline provider_groups (embedded in negotiated_rates)
+                    for pg in neg_rate_entry.get("provider_groups", []):
+                        npi_list = pg.get("npi", [])
+                        tin_obj = pg.get("tin", {})
+                        tin_value = tin_obj.get("value", "") if isinstance(tin_obj, dict) else str(tin_obj)
+                        for npi in npi_list:
+                            npi_str = str(int(npi))
+                            if npi_str in self.iowa_npis:
+                                iowa_npi_tin_pairs.append((npi_str, tin_value))
 
                     if not iowa_npi_tin_pairs:
                         continue

@@ -82,6 +82,11 @@ def edge_case_mrf_path(fixture_dir):
 
 
 @pytest.fixture
+def inline_providers_mrf_path(fixture_dir):
+    return fixture_dir / "inline_providers_mrf.json"
+
+
+@pytest.fixture
 def async_file_bytes(fixture_dir):
     """Factory: returns an async byte-chunk iterator from a fixture file."""
     async def _reader(path: pathlib.Path, chunk_size: int = 8192):

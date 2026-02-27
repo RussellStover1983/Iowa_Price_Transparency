@@ -178,3 +178,46 @@ async def test_multiple_negotiated_rates_entries(complex_mrf_path):
     descriptions = {r.description for r in knee_records}
     assert "Total knee replacement (arthroplasty)" in descriptions
     assert "Total knee replacement alternative rate" in descriptions
+
+
+# --- Inline provider_groups tests (CMS Schema alternate pattern) ---
+
+
+@pytest.mark.asyncio
+async def test_inline_provider_groups_extracted(inline_providers_mrf_path):
+    """MRF with inline provider_groups (no top-level references) should still extract Iowa rates."""
+    processor = MrfStreamProcessor(
+        iowa_npis=IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    records = await _collect_rates(processor, _bytes_from_file(inline_providers_mrf_path))
+    # 27447: 2 Iowa NPIs (1234567890, 2345678901) x 1 price = 2 records
+    # 99213: 1 Iowa NPI (1234567890) x 1 price = 1 record
+    # Non-Iowa NPI 9999999999 is filtered out
+    assert len(records) == 3
+    assert processor.result.iowa_rates_extracted == 3
+    assert len(processor.result.errors) == 0
+
+
+@pytest.mark.asyncio
+async def test_inline_provider_groups_filters_non_iowa(inline_providers_mrf_path):
+    """Inline provider_groups correctly excludes non-Iowa NPIs."""
+    processor = MrfStreamProcessor(
+        iowa_npis=IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    records = await _collect_rates(processor, _bytes_from_file(inline_providers_mrf_path))
+    npis_in_results = {r.npi for r in records}
+    assert "9999999999" not in npis_in_results
+    assert "1234567890" in npis_in_results
+    assert "2345678901" in npis_in_results
+
+
+@pytest.mark.asyncio
+async def test_inline_provider_groups_tin_preserved(inline_providers_mrf_path):
+    """TIN values from inline provider_groups are correctly captured."""
+    processor = MrfStreamProcessor(
+        iowa_npis=IOWA_NPIS, target_cpt_codes=TARGET_CODES
+    )
+    records = await _collect_rates(processor, _bytes_from_file(inline_providers_mrf_path))
+    tins = {(r.npi, r.tin) for r in records}
+    assert ("1234567890", "421234567") in tins
+    assert ("2345678901", "422345678") in tins

@@ -251,6 +251,12 @@ async def _ingest_mrf_with_matcher(
             await db.commit()
             total_inserted += len(batch)
 
+        # Check for parse errors recorded by the stream processor
+        if processor.result.errors:
+            raise RuntimeError(
+                f"MRF parse errors: {'; '.join(processor.result.errors)}"
+            )
+
         if not dry_run and mrf_file_id:
             now = datetime.now(timezone.utc).isoformat()
             await db.execute(

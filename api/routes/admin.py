@@ -127,3 +127,121 @@ async def list_jobs(
     """List all ETL jobs and their status."""
     _verify_token(token)
     return {"jobs": _etl_jobs}
+
+
+@router.get("/admin/discover")
+async def discover_mrf_files(
+    token: str = Query(..., description="Admin token"),
+    payer: str = Query(..., description="Payer short_name"),
+    test_url: bool = Query(False, description="Test HEAD request on first discovered URL"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Discover MRF file URLs for a payer and optionally test connectivity.
+
+    Useful for diagnosing ingestion failures (expired SAS tokens, etc.).
+    """
+    import httpx
+    from etl.toc_adapters import get_mrf_file_list
+
+    _verify_token(token)
+
+    # Look up payer
+    cursor = await db.execute(
+        "SELECT id, name, short_name, toc_url FROM payers WHERE short_name = ?",
+        (payer,),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Unknown payer: {payer}")
+
+    payer_dict = {"id": row[0], "name": row[1], "short_name": row[2], "toc_url": row[3]}
+
+    # Discover files
+    try:
+        files = await get_mrf_file_list(payer_dict)
+    except Exception as e:
+        return {"error": f"Discovery failed: {e}", "payer": payer_dict}
+
+    result = {
+        "payer": payer_dict["name"],
+        "toc_url": payer_dict["toc_url"][:100] if payer_dict["toc_url"] else None,
+        "files_found": len(files),
+        "files": [
+            {
+                "description": f.description,
+                "url_hash": f.url_hash,
+                "url_preview": f.url.split("?")[0][-80:],  # path only, no SAS token
+            }
+            for f in files[:20]  # cap at 20 for response size
+        ],
+    }
+
+    # Optionally test the first URL with a HEAD request
+    if test_url and files:
+        try:
+            timeout = httpx.Timeout(connect=15.0, read=15.0, write=10.0, pool=None)
+            async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+                resp = await client.head(files[0].url)
+                result["url_test"] = {
+                    "status_code": resp.status_code,
+                    "content_type": resp.headers.get("content-type", ""),
+                    "content_length": resp.headers.get("content-length", ""),
+                    "url_tested": files[0].url.split("?")[0][-80:],
+                }
+        except Exception as e:
+            result["url_test"] = {"error": str(e)}
+
+    # Check what's already processed for this payer
+    cursor = await db.execute(
+        "SELECT status, COUNT(*) FROM mrf_files WHERE payer_id = ? GROUP BY status",
+        (payer_dict["id"],),
+    )
+    status_rows = await cursor.fetchall()
+    result["db_mrf_files"] = {row[0]: row[1] for row in status_rows}
+
+    return result
+
+
+@router.post("/admin/reset-mrf-files")
+async def reset_mrf_files(
+    token: str = Query(..., description="Admin token"),
+    payer: str = Query(None, description="Payer short_name (optional, resets all if omitted)"),
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    """Reset failed/error MRF files so they can be re-attempted.
+
+    Deletes mrf_files rows with status 'error' or 'processing' (stuck jobs).
+    Also deletes any rates linked to those files.
+    """
+    _verify_token(token)
+
+    if payer:
+        cursor = await db.execute(
+            "SELECT id FROM payers WHERE short_name = ?", (payer,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Unknown payer: {payer}")
+        payer_id = row[0]
+        # Delete rates linked to failed files
+        await db.execute(
+            "DELETE FROM normalized_rates WHERE mrf_file_id IN "
+            "(SELECT id FROM mrf_files WHERE payer_id = ? AND status IN ('error', 'processing'))",
+            (payer_id,),
+        )
+        cursor = await db.execute(
+            "DELETE FROM mrf_files WHERE payer_id = ? AND status IN ('error', 'processing')",
+            (payer_id,),
+        )
+    else:
+        await db.execute(
+            "DELETE FROM normalized_rates WHERE mrf_file_id IN "
+            "(SELECT id FROM mrf_files WHERE status IN ('error', 'processing'))"
+        )
+        cursor = await db.execute(
+            "DELETE FROM mrf_files WHERE status IN ('error', 'processing')"
+        )
+
+    deleted = cursor.rowcount
+    await db.commit()
+    return {"deleted_mrf_files": deleted, "payer": payer or "all"}
