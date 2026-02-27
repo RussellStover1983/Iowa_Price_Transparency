@@ -1,8 +1,9 @@
 """Admin endpoints — coverage stats, metadata, and ETL triggers."""
 
-import asyncio
 import logging
 import os
+import subprocess
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
@@ -16,6 +17,9 @@ router = APIRouter(prefix="/v1", tags=["admin"])
 logger = logging.getLogger(__name__)
 DATABASE_PATH = os.getenv("DATABASE_PATH", "./data/iowa_transparency.db")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
+# Simple in-memory ETL job tracker
+_etl_jobs: list[dict] = []
 
 
 @router.get("/admin/stats", response_model=CoverageStats)
@@ -56,32 +60,32 @@ def _verify_token(token: str) -> None:
         raise HTTPException(status_code=403, detail="Invalid admin token")
 
 
-def _run_etl_load_npis() -> None:
-    """Run NPI loading in a background thread (sync subprocess)."""
-    import subprocess
-    logger.info("ETL: Starting load_iowa_npis...")
-    result = subprocess.run(
-        ["python", "-m", "etl.load_iowa_npis"],
-        capture_output=True, text=True, timeout=300,
-    )
-    if result.returncode == 0:
-        logger.info("ETL: load_iowa_npis completed successfully")
-    else:
-        logger.error("ETL: load_iowa_npis failed: %s", result.stderr)
-
-
-def _run_etl_ingest(payer: str, limit: int) -> None:
-    """Run MRF ingestion in a background thread (sync subprocess)."""
-    import subprocess
-    logger.info("ETL: Starting ingest_mrf payer=%s limit=%d...", payer, limit)
-    result = subprocess.run(
-        ["python", "-m", "etl.ingest_mrf", "--payer", payer, "--limit", str(limit), "-v"],
-        capture_output=True, text=True, timeout=3600,
-    )
-    if result.returncode == 0:
-        logger.info("ETL: ingest_mrf payer=%s completed successfully", payer)
-    else:
-        logger.error("ETL: ingest_mrf payer=%s failed: %s", payer, result.stderr[-500:])
+def _run_subprocess(cmd: list[str], job: dict, timeout: int = 3600) -> None:
+    """Run a subprocess, stream output to logger, update job status."""
+    job["status"] = "running"
+    job["started_at"] = datetime.now(timezone.utc).isoformat()
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout,
+        )
+        job["exit_code"] = result.returncode
+        job["stdout"] = result.stdout[-2000:] if result.stdout else ""
+        job["stderr"] = result.stderr[-2000:] if result.stderr else ""
+        if result.returncode == 0:
+            job["status"] = "completed"
+            logger.info("ETL job %s completed. stdout: %s", job["task"], result.stdout[-500:])
+        else:
+            job["status"] = "failed"
+            logger.error("ETL job %s failed (exit %d): %s", job["task"], result.returncode, result.stderr[-500:])
+    except subprocess.TimeoutExpired:
+        job["status"] = "timeout"
+        logger.error("ETL job %s timed out after %ds", job["task"], timeout)
+    except Exception as e:
+        job["status"] = "error"
+        job["stderr"] = str(e)
+        logger.error("ETL job %s error: %s", job["task"], e)
+    finally:
+        job["finished_at"] = datetime.now(timezone.utc).isoformat()
 
 
 @router.post("/admin/load-npis")
@@ -91,8 +95,10 @@ async def load_npis(
 ):
     """Trigger NPPES NPI loading in the background."""
     _verify_token(token)
-    background_tasks.add_task(_run_etl_load_npis)
-    return {"status": "started", "task": "load_iowa_npis"}
+    job = {"task": "load_iowa_npis", "status": "queued", "created_at": datetime.now(timezone.utc).isoformat()}
+    _etl_jobs.append(job)
+    background_tasks.add_task(_run_subprocess, ["python", "-m", "etl.load_iowa_npis"], job, 300)
+    return {"status": "started", "task": "load_iowa_npis", "job_index": len(_etl_jobs) - 1}
 
 
 @router.post("/admin/ingest")
@@ -104,5 +110,20 @@ async def ingest_mrf(
 ):
     """Trigger MRF ingestion for a payer in the background."""
     _verify_token(token)
-    background_tasks.add_task(_run_etl_ingest, payer, limit)
-    return {"status": "started", "task": "ingest_mrf", "payer": payer, "limit": limit}
+    job = {"task": f"ingest_mrf:{payer}", "payer": payer, "limit": limit, "status": "queued", "created_at": datetime.now(timezone.utc).isoformat()}
+    _etl_jobs.append(job)
+    background_tasks.add_task(
+        _run_subprocess,
+        ["python", "-m", "etl.ingest_mrf", "--payer", payer, "--limit", str(limit), "-v"],
+        job, 3600,
+    )
+    return {"status": "started", "task": "ingest_mrf", "payer": payer, "limit": limit, "job_index": len(_etl_jobs) - 1}
+
+
+@router.get("/admin/jobs")
+async def list_jobs(
+    token: str = Query(..., description="Admin token"),
+):
+    """List all ETL jobs and their status."""
+    _verify_token(token)
+    return {"jobs": _etl_jobs}
