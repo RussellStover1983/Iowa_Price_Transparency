@@ -276,6 +276,14 @@ class MrfStreamProcessor:
                     # Get negotiated prices
                     for price_entry in neg_rate_entry.get("negotiated_prices", []):
                         neg_rate = price_entry.get("negotiated_rate", 0.0)
+
+                        # Debug: log first price entry structure
+                        if self.result.iowa_rates_extracted == 0:
+                            logger.info(
+                                "First price_entry keys: %s, sample: %s",
+                                list(price_entry.keys()),
+                                {k: v for k, v in list(price_entry.items())[:6]},
+                            )
                         neg_type = price_entry.get("negotiated_type", "")
                         service_codes = price_entry.get("service_code", [])
                         billing_class = price_entry.get("billing_class", "")
