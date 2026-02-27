@@ -75,6 +75,7 @@ async def ingest_payer(
     db_path: str | None = None,
     limit: int | None = None,
     url: str | None = None,
+    search: str | None = None,
     dry_run: bool = False,
 ) -> dict:
     """Full ingestion pipeline for a single payer.
@@ -112,6 +113,12 @@ async def ingest_payer(
         else:
             logger.info("Discovering MRF files for %s...", payer["short_name"])
             mrf_files = await get_mrf_file_list(payer)
+
+        # Optional keyword filter on file descriptions
+        if search:
+            search_lower = search.lower()
+            mrf_files = [f for f in mrf_files if search_lower in f.description.lower()]
+            logger.info("Filtered to %d files matching '%s'", len(mrf_files), search)
 
         if limit:
             mrf_files = mrf_files[:limit]
@@ -386,6 +393,7 @@ def main():
     parser.add_argument("--payer", help="Payer short_name (e.g., uhc, wellmark)")
     parser.add_argument("--limit", type=int, help="Max number of MRF files to process")
     parser.add_argument("--url", help="Process a specific MRF file URL")
+    parser.add_argument("--search", help="Filter file list by keyword (e.g. 'iowa')")
     parser.add_argument("--dry-run", action="store_true", help="Parse without inserting into DB")
     parser.add_argument("--list-payers", action="store_true", help="List all payers and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
@@ -411,6 +419,7 @@ def main():
             payer_short_name=args.payer,
             limit=args.limit,
             url=args.url,
+            search=args.search,
             dry_run=args.dry_run,
         )
     )

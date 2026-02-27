@@ -106,18 +106,18 @@ async def ingest_mrf(
     token: str = Query(..., description="Admin token"),
     payer: str = Query(..., description="Payer short_name (uhc, aetna, cigna, medica)"),
     limit: int = Query(1, ge=1, le=20, description="Max MRF files to process"),
+    search: str = Query(None, description="Filter files by keyword (e.g. 'iowa')"),
     background_tasks: BackgroundTasks = None,
 ):
     """Trigger MRF ingestion for a payer in the background."""
     _verify_token(token)
-    job = {"task": f"ingest_mrf:{payer}", "payer": payer, "limit": limit, "status": "queued", "created_at": datetime.now(timezone.utc).isoformat()}
+    cmd = ["python", "-m", "etl.ingest_mrf", "--payer", payer, "--limit", str(limit), "-v"]
+    if search:
+        cmd.extend(["--search", search])
+    job = {"task": f"ingest_mrf:{payer}", "payer": payer, "limit": limit, "search": search, "status": "queued", "created_at": datetime.now(timezone.utc).isoformat()}
     _etl_jobs.append(job)
-    background_tasks.add_task(
-        _run_subprocess,
-        ["python", "-m", "etl.ingest_mrf", "--payer", payer, "--limit", str(limit), "-v"],
-        job, 3600,
-    )
-    return {"status": "started", "task": "ingest_mrf", "payer": payer, "limit": limit, "job_index": len(_etl_jobs) - 1}
+    background_tasks.add_task(_run_subprocess, cmd, job, 3600)
+    return {"status": "started", "task": "ingest_mrf", "payer": payer, "limit": limit, "search": search, "job_index": len(_etl_jobs) - 1}
 
 
 @router.get("/admin/jobs")
