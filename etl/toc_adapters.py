@@ -85,11 +85,29 @@ async def _uhc_get_mrf_files(payer: dict) -> list[MrfFileInfo]:
                 description=f"UHC: {filename} ({size_mb:.0f} MB)",
             )))
 
-    # Sort smallest first — more practical for testing with --limit
-    results.sort(key=lambda x: x[0])
-    sorted_files = [info for _, info in results]
+    # Filter out trivially small files (< 1MB compressed = likely empty plans)
+    MIN_SIZE = 1 * 1024 * 1024  # 1 MB
+    filtered = [(size, info) for size, info in results if size >= MIN_SIZE]
+    skipped = len(results) - len(filtered)
 
-    logger.info("UHC adapter: found %d in-network MRF files", len(sorted_files))
+    # Sort by size: medium files first (10-500MB range), then larger, then smaller
+    # This prioritizes files likely to have Iowa data without being multi-GB behemoths
+    def _sort_key(item):
+        size = item[0]
+        mb = size / (1024 * 1024)
+        if 10 <= mb <= 500:
+            return (0, size)  # preferred range, sorted ascending within
+        elif mb > 500:
+            return (1, size)  # large files second
+        else:
+            return (2, -size)  # small files last
+    filtered.sort(key=_sort_key)
+    sorted_files = [info for _, info in filtered]
+
+    logger.info(
+        "UHC adapter: found %d in-network MRF files (%d skipped < 1MB)",
+        len(sorted_files), skipped,
+    )
     return sorted_files
 
 
