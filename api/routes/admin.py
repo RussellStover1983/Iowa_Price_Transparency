@@ -163,10 +163,14 @@ async def discover_mrf_files(
     except Exception as e:
         return {"error": f"Discovery failed: {e}", "payer": payer_dict}
 
-    # Optional keyword filter
+    # Optional keyword filter (checks description and URL path)
     if search:
         search_lower = search.lower()
-        files = [f for f in files if search_lower in f.description.lower()]
+        files = [
+            f for f in files
+            if search_lower in f.description.lower()
+            or search_lower in f.url.split("?")[0].lower()
+        ]
 
     result = {
         "payer": payer_dict["name"],

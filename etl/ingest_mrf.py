@@ -114,10 +114,14 @@ async def ingest_payer(
             logger.info("Discovering MRF files for %s...", payer["short_name"])
             mrf_files = await get_mrf_file_list(payer)
 
-        # Optional keyword filter on file descriptions
+        # Optional keyword filter on descriptions and URLs
         if search:
             search_lower = search.lower()
-            mrf_files = [f for f in mrf_files if search_lower in f.description.lower()]
+            mrf_files = [
+                f for f in mrf_files
+                if search_lower in f.description.lower()
+                or search_lower in f.url.split("?")[0].lower()
+            ]
             logger.info("Filtered to %d files matching '%s'", len(mrf_files), search)
 
         if limit:
