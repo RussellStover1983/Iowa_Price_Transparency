@@ -275,14 +275,16 @@ class MrfStreamProcessor:
 
                     # Get negotiated prices
                     for price_entry in neg_rate_entry.get("negotiated_prices", []):
-                        neg_rate = price_entry.get("negotiated_rate", 0.0)
+                        neg_rate = float(price_entry.get("negotiated_rate", 0))
 
-                        # Debug: print first price entry structure to stdout
-                        if self.result.iowa_rates_extracted == 0:
-                            import json as _json
-                            print(f"DEBUG_PRICE_ENTRY: {_json.dumps(price_entry, default=str)[:500]}", flush=True)
+                        # Skip $0 rates (common placeholder in HMO network files)
+                        if neg_rate <= 0:
+                            continue
+
                         neg_type = price_entry.get("negotiated_type", "")
                         service_codes = price_entry.get("service_code", [])
+                        if isinstance(service_codes, str):
+                            service_codes = [service_codes]
                         billing_class = price_entry.get("billing_class", "")
 
                         # Cross-join: one RateRecord per Iowa NPI × price
@@ -292,7 +294,7 @@ class MrfStreamProcessor:
                                 tin=tin,
                                 billing_code=billing_code,
                                 billing_code_type=billing_code_type,
-                                negotiated_rate=float(neg_rate),
+                                negotiated_rate=neg_rate,
                                 negotiated_type=neg_type,
                                 service_code=service_codes,
                                 billing_class=billing_class,

@@ -228,17 +228,15 @@ async def test_all_target_codes_present(complex_mrf_path):
 
 
 @pytest.mark.asyncio
-async def test_zero_rate_not_filtered(edge_case_mrf_path):
-    """Rate 0.00 is extracted, not treated as falsy."""
+async def test_zero_rate_filtered_out(edge_case_mrf_path):
+    """Rate 0.00 is skipped (common placeholder in HMO network files)."""
     processor = MrfStreamProcessor(
         iowa_npis=EDGE_CASE_IOWA_NPIS, target_cpt_codes=TARGET_CODES
     )
     records = await _collect_rates(processor, _bytes_from_file(edge_case_mrf_path))
 
     zero_rate = [r for r in records if r.negotiated_rate == 0.0]
-    assert len(zero_rate) == 1
-    assert zero_rate[0].billing_code == "99213"
-    assert zero_rate[0].description == "Office visit with zero negotiated rate"
+    assert len(zero_rate) == 0
 
 
 @pytest.mark.asyncio
