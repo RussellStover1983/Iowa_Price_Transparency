@@ -18,8 +18,9 @@ COPY etl/ ./etl/
 COPY services/ ./services/
 COPY .env.example ./.env.example
 COPY --from=frontend-builder /build/out/ ./frontend/
-RUN mkdir -p /data
 ENV DATABASE_PATH=/data/iowa_transparency.db
 ENV ENVIRONMENT=production
 EXPOSE 8000
-CMD ["sh", "-c", "python -m db.init_db && python -m etl.load_cpt && python -m etl.seed_payers && exec uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+CMD ["./entrypoint.sh"]
