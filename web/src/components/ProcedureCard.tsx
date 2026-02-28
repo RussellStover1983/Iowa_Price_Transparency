@@ -19,7 +19,7 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <Link
-              href={`/app/procedure?code=${procedure.billing_code}`}
+              href={`/procedure?code=${procedure.billing_code}`}
               className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs font-mono font-medium rounded hover:bg-primary-200 transition-colors"
             >
               {procedure.billing_code}
@@ -72,7 +72,7 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
                           rowSpan={provider.rates.length}
                         >
                           <Link
-                            href={`/app/provider?id=${provider.provider_id}`}
+                            href={`/provider?id=${provider.provider_id}`}
                             className="hover:text-primary-600 transition-colors"
                           >
                             {provider.provider_name}

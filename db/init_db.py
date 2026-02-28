@@ -77,6 +77,8 @@ CREATE INDEX IF NOT EXISTS idx_rates_billing_provider_payer
     ON normalized_rates(billing_code, provider_id, payer_id);
 CREATE INDEX IF NOT EXISTS idx_rates_provider_billing
     ON normalized_rates(provider_id, billing_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rates_dedup
+    ON normalized_rates(payer_id, provider_id, billing_code, negotiated_rate, rate_type);
 
 CREATE TABLE IF NOT EXISTS cpt_lookup (
     code TEXT PRIMARY KEY,
@@ -114,6 +116,43 @@ END;
 """
 
 
+async def _migrate_dedup_index(db: aiosqlite.Connection) -> None:
+    """Remove duplicate rates before creating the unique index.
+
+    Only runs if the index doesn't exist yet AND there are duplicates.
+    """
+    # Check if the unique index already exists
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_rates_dedup'"
+    )
+    if await cursor.fetchone():
+        return  # index already exists
+
+    # Check if the table exists and has data
+    cursor = await db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='normalized_rates'"
+    )
+    if not await cursor.fetchone():
+        return  # table doesn't exist yet — schema creation will handle it
+
+    cursor = await db.execute("SELECT COUNT(*) FROM normalized_rates")
+    count = (await cursor.fetchone())[0]
+    if count == 0:
+        return  # empty table — no migration needed
+
+    # Delete duplicates, keeping the row with the lowest id
+    result = await db.execute(
+        "DELETE FROM normalized_rates WHERE id NOT IN ("
+        "  SELECT MIN(id) FROM normalized_rates "
+        "  GROUP BY payer_id, provider_id, billing_code, negotiated_rate, rate_type"
+        ")"
+    )
+    deleted = result.rowcount
+    if deleted > 0:
+        await db.commit()
+        print(f"  Deduplicated normalized_rates: removed {deleted} duplicate rows")
+
+
 async def init_database(db_path: str | None = None):
     """Create all tables and indexes idempotently."""
     path = db_path or DATABASE_PATH
@@ -123,6 +162,10 @@ async def init_database(db_path: str | None = None):
     try:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA foreign_keys=ON")
+
+        # Migrate: deduplicate before creating unique index on existing DBs
+        await _migrate_dedup_index(db)
+
         await db.executescript(SCHEMA_SQL)
         await db.commit()
         print(f"Database initialized at {path}")

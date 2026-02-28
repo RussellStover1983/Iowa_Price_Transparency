@@ -221,3 +221,88 @@ async def test_inline_provider_groups_tin_preserved(inline_providers_mrf_path):
     tins = {(r.npi, r.tin) for r in records}
     assert ("1234567890", "421234567") in tins
     assert ("2345678901", "422345678") in tins
+
+
+# --- TIN-based matching tests (UHC-style Type 1 NPIs) ---
+
+# UHC fixture uses Type 1 NPIs (5551234567, etc.) — none in IOWA_NPIS.
+# Iowa hospital TINs: 421234567, 422345678
+UHC_IOWA_TINS = {"421234567", "422345678"}
+
+
+@pytest.mark.asyncio
+async def test_tin_based_matching_extracts_rates(uhc_style_mrf_path):
+    """TIN-based matching extracts rates when NPIs don't match Iowa providers."""
+    # No NPI overlap — all NPIs in fixture are Type 1 (555...)
+    processor = MrfStreamProcessor(
+        iowa_npis=set(),  # empty NPI set — simulates no NPI matches
+        target_cpt_codes=TARGET_CODES,
+        iowa_tins=UHC_IOWA_TINS,
+    )
+    records = await _collect_rates(processor, _bytes_from_file(uhc_style_mrf_path))
+
+    # Group 1 (TIN 421234567): 2 NPIs → matched via TIN
+    # Group 2 (TIN 422345678): 1 NPI → matched via TIN
+    # Group 3 (TIN 999999999): not an Iowa TIN → excluded
+    # 27447: groups [1,2] → 3 NPIs × 1 price = 3 records (group 3 excluded)
+    # 99213 inline: TIN 421234567 matched → 1 NPI × 1 price = 1 record
+    #               TIN 999999999 not matched → excluded
+    assert len(records) == 4
+    assert processor.result.iowa_provider_groups == 2  # groups 1 and 2
+
+
+@pytest.mark.asyncio
+async def test_tin_matching_excludes_non_iowa_tins(uhc_style_mrf_path):
+    """Groups with non-Iowa TINs are excluded from TIN matching."""
+    processor = MrfStreamProcessor(
+        iowa_npis=set(),
+        target_cpt_codes=TARGET_CODES,
+        iowa_tins=UHC_IOWA_TINS,
+    )
+    records = await _collect_rates(processor, _bytes_from_file(uhc_style_mrf_path))
+    tins_in_results = {r.tin for r in records}
+    assert "999999999" not in tins_in_results
+
+
+@pytest.mark.asyncio
+async def test_npi_matching_takes_priority_over_tin(sample_mrf_path):
+    """When both NPI and TIN could match, NPI-based matching is used."""
+    # sample_mrf.json has Iowa NPIs 1234567890 and 2345678901
+    # Also provide their TINs — NPI should take priority
+    processor = MrfStreamProcessor(
+        iowa_npis=IOWA_NPIS,
+        target_cpt_codes=TARGET_CODES,
+        iowa_tins={"421234567", "422345678"},
+    )
+    records = await _collect_rates(processor, _bytes_from_file(sample_mrf_path))
+    # Should produce same results as without TIN matching
+    assert len(records) == 3
+    assert processor.result.iowa_provider_groups == 2
+
+
+@pytest.mark.asyncio
+async def test_tin_matching_without_tins_is_noop(uhc_style_mrf_path):
+    """Without iowa_tins, Type 1 NPI files produce zero rates (backward compatible)."""
+    processor = MrfStreamProcessor(
+        iowa_npis=set(),  # no NPI matches
+        target_cpt_codes=TARGET_CODES,
+        # iowa_tins not provided — defaults to empty set
+    )
+    records = await _collect_rates(processor, _bytes_from_file(uhc_style_mrf_path))
+    assert len(records) == 0
+    assert processor.result.iowa_provider_groups == 0
+
+
+@pytest.mark.asyncio
+async def test_tin_matching_inline_provider_groups(uhc_style_mrf_path):
+    """TIN matching works for inline provider_groups (Phase 2 pattern)."""
+    processor = MrfStreamProcessor(
+        iowa_npis=set(),
+        target_cpt_codes={"99213"},  # only the inline one
+        iowa_tins=UHC_IOWA_TINS,
+    )
+    records = await _collect_rates(processor, _bytes_from_file(uhc_style_mrf_path))
+    # 99213 has inline provider_groups: TIN 421234567 matches, 999999999 doesn't
+    assert len(records) == 1
+    assert records[0].tin == "421234567"
+    assert records[0].billing_code == "99213"

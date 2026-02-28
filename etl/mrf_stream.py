@@ -55,16 +55,18 @@ class MrfParseResult:
 
 
 class MrfStreamProcessor:
-    """Streams an MRF file, filtering by CPT codes and Iowa NPIs."""
+    """Streams an MRF file, filtering by CPT codes and Iowa NPIs/TINs."""
 
     def __init__(
         self,
         iowa_npis: set[str],
         target_cpt_codes: set[str],
+        iowa_tins: set[str] | None = None,
         batch_size: int = 1000,
     ) -> None:
         self.iowa_npis = iowa_npis
         self.target_cpt_codes = target_cpt_codes
+        self.iowa_tins = iowa_tins or set()
         self.batch_size = batch_size
         self.result = MrfParseResult()
 
@@ -171,11 +173,12 @@ class MrfStreamProcessor:
         """Two-phase parse: provider_references then in_network items."""
         # Phase 1: Build Iowa provider group map
         iowa_groups: dict[int, list[tuple[str, str]]] = {}
-        # {group_id: [(npi, tin), ...]} — only groups containing at least one Iowa NPI
+        # {group_id: [(npi, tin), ...]} — groups matching Iowa NPIs or Iowa TINs
 
         # Tracking state for the current provider_references item
         current_group_id: int | None = None
-        current_group_npis: list[tuple[str, str]] = []
+        current_npi_matched: list[tuple[str, str]] = []  # NPI-matched entries
+        current_all_entries: list[tuple[str, str]] = []   # all (npi, tin) pairs for TIN fallback
         # Tracking state for the current provider_groups sub-item
         current_entry_npis: list[str] = []
         current_tin: str = ""
@@ -185,7 +188,8 @@ class MrfStreamProcessor:
                 if prefix == "provider_references.item" and event == "start_map":
                     # New provider_reference — reset group-level state
                     current_group_id = None
-                    current_group_npis = []
+                    current_npi_matched = []
+                    current_all_entries = []
                     self.result.provider_groups_total += 1
 
                 elif prefix == "provider_references.item.provider_group_id":
@@ -203,16 +207,30 @@ class MrfStreamProcessor:
                     current_tin = str(value)
 
                 elif prefix == "provider_references.item.provider_groups.item" and event == "end_map":
-                    # End of one provider_groups entry — collect Iowa NPIs
+                    # End of one provider_groups entry — collect matches
                     for npi in current_entry_npis:
                         if npi in self.iowa_npis:
-                            current_group_npis.append((npi, current_tin))
+                            current_npi_matched.append((npi, current_tin))
+                    # Also track all entries for TIN-based fallback
+                    if self.iowa_tins:
+                        for npi in current_entry_npis:
+                            current_all_entries.append((npi, current_tin))
 
                 elif prefix == "provider_references.item" and event == "end_map":
-                    # End of one provider_reference — save if it has Iowa NPIs
-                    if current_group_npis and current_group_id is not None:
-                        iowa_groups[current_group_id] = current_group_npis
+                    # End of one provider_reference — save if it has Iowa matches
+                    if current_npi_matched and current_group_id is not None:
+                        # Prefer NPI-based matching (more specific)
+                        iowa_groups[current_group_id] = current_npi_matched
                         self.result.iowa_provider_groups += 1
+                    elif self.iowa_tins and current_group_id is not None:
+                        # Fallback: check TINs for groups that didn't match on NPI
+                        tin_matched = [
+                            (npi, tin) for npi, tin in current_all_entries
+                            if tin in self.iowa_tins
+                        ]
+                        if tin_matched:
+                            iowa_groups[current_group_id] = tin_matched
+                            self.result.iowa_provider_groups += 1
 
                 elif prefix == "in_network" and event == "start_array":
                     # Transition to phase 2
@@ -265,9 +283,16 @@ class MrfStreamProcessor:
                         npi_list = pg.get("npi", [])
                         tin_obj = pg.get("tin", {})
                         tin_value = tin_obj.get("value", "") if isinstance(tin_obj, dict) else str(tin_obj)
+                        npi_matched_any = False
                         for npi in npi_list:
                             npi_str = str(int(npi))
                             if npi_str in self.iowa_npis:
+                                iowa_npi_tin_pairs.append((npi_str, tin_value))
+                                npi_matched_any = True
+                        # TIN-based fallback for inline groups
+                        if not npi_matched_any and self.iowa_tins and tin_value in self.iowa_tins:
+                            for npi in npi_list:
+                                npi_str = str(int(npi))
                                 iowa_npi_tin_pairs.append((npi_str, tin_value))
 
                     if not iowa_npi_tin_pairs:

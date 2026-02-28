@@ -95,7 +95,7 @@ export default function SearchContent() {
       if (city) sp.set('city', city);
       if (sort) sp.set('sort', sort);
       const qs = sp.toString();
-      router.replace(`/app/search/${qs ? '?' + qs : ''}`, { scroll: false });
+      router.replace(`/search/${qs ? '?' + qs : ''}`, { scroll: false });
     },
     [router]
   );

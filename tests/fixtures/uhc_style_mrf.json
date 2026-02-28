@@ -1,0 +1,106 @@
+{
+  "reporting_entity_name": "UHC Style Test Payer",
+  "reporting_entity_type": "health insurance issuer",
+  "last_updated_on": "2024-07-01",
+  "version": "1.0.0",
+  "provider_references": [
+    {
+      "provider_group_id": 1,
+      "provider_groups": [
+        {
+          "npi": [5551234567],
+          "tin": {"type": "ein", "value": "421234567"}
+        },
+        {
+          "npi": [5559876543],
+          "tin": {"type": "ein", "value": "421234567"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 2,
+      "provider_groups": [
+        {
+          "npi": [5552345678],
+          "tin": {"type": "ein", "value": "422345678"}
+        }
+      ]
+    },
+    {
+      "provider_group_id": 3,
+      "provider_groups": [
+        {
+          "npi": [5553456789],
+          "tin": {"type": "ein", "value": "999999999"}
+        }
+      ]
+    }
+  ],
+  "in_network": [
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Total knee replacement",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "27447",
+      "description": "Total knee replacement (arthroplasty)",
+      "negotiated_rates": [
+        {
+          "provider_references": [1, 2],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 42000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        },
+        {
+          "provider_references": [3],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 55000.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["21"],
+              "billing_class": "institutional"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "negotiation_arrangement": "ffs",
+      "name": "Office visit",
+      "billing_code_type": "CPT",
+      "billing_code_type_version": "2024",
+      "billing_code": "99213",
+      "description": "Office visit established patient level 3",
+      "negotiated_rates": [
+        {
+          "provider_groups": [
+            {
+              "npi": [5554567890],
+              "tin": {"type": "ein", "value": "421234567"}
+            },
+            {
+              "npi": [5555678901],
+              "tin": {"type": "ein", "value": "999999999"}
+            }
+          ],
+          "negotiated_prices": [
+            {
+              "negotiated_type": "negotiated",
+              "negotiated_rate": 175.00,
+              "expiration_date": "2025-12-31",
+              "service_code": ["11"],
+              "billing_class": "professional"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

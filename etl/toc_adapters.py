@@ -3,6 +3,7 @@
 Each major payer uses a different access pattern for their Table of Contents:
 - UHC: Azure blob API with two-step fetch (list → download URL)
 - Aetna: latest_metadata.json → find Iowa TOC → parse MRF URLs
+- Wellmark: latest_metadata.json → find Iowa TOC → parse MRF URLs (same HealthSparq platform as Aetna)
 - Cigna: Signed CloudFront URLs scraped from compliance page
 - Medica: Direct GCS bucket probing for known Iowa plan files
 
@@ -350,12 +351,101 @@ async def _medica_get_mrf_files(payer: dict) -> list[MrfFileInfo]:
 
 
 # ---------------------------------------------------------------------------
+# Wellmark adapter — latest_metadata.json → Iowa TOC → MRF URLs
+# (Same HealthSparq platform as Aetna, different brand code)
+# ---------------------------------------------------------------------------
+
+_WELLMARK_BASE = "https://mrf.healthsparq.com/wmrk-egress.nophi.kyruushsq.com/prd/mrf/WMRK_I"
+_WELLMARK_BRAND = "WELLMARK"
+
+
+async def _wellmark_get_mrf_files(payer: dict) -> list[MrfFileInfo]:
+    """Fetch Wellmark's latest_metadata.json, find Iowa TOC, parse MRF URLs.
+
+    Wellmark uses the same HealthSparq platform as Aetna. Their metadata
+    endpoint lists all available TOC and in-network rate files.
+    """
+    metadata_url = f"{_WELLMARK_BASE}/{_WELLMARK_BRAND}/latest_metadata.json"
+    logger.info("Wellmark: fetching metadata from %s", metadata_url)
+
+    async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+        try:
+            resp = await client.get(metadata_url)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            logger.error("Wellmark metadata fetch failed: %s", e)
+            return []
+
+    files_list = data.get("files", data) if isinstance(data, dict) else data
+    if not isinstance(files_list, list):
+        logger.error("Wellmark: unexpected metadata format")
+        return []
+
+    # Strategy 1: Find Iowa-specific TOC and parse it
+    iowa_toc = None
+    main_toc = None
+    for entry in files_list:
+        if not isinstance(entry, dict):
+            continue
+        schema = entry.get("fileSchema", "")
+        if schema != "TABLE_OF_CONTENTS":
+            continue
+        entity = entry.get("reportingEntityName", "").lower()
+        file_path = entry.get("filePath", "")
+        if "iowa" in entity or "wellmark" in entity:
+            iowa_toc = file_path
+            break
+        if not main_toc:
+            main_toc = file_path
+
+    toc_path = iowa_toc or main_toc
+    if toc_path:
+        toc_url = f"{_WELLMARK_BASE}/{_WELLMARK_BRAND}/{toc_path}"
+        logger.info("Wellmark: parsing TOC at %s", toc_url[:120])
+        try:
+            files = await parse_toc_from_url(toc_url)
+            if files:
+                logger.info("Wellmark: found %d MRF files from TOC", len(files))
+                return files
+        except Exception as e:
+            logger.error("Wellmark TOC parse failed: %s", e)
+
+    # Strategy 2: Build MRF file list directly from metadata entries
+    logger.info("Wellmark: building file list from metadata entries")
+    results: list[MrfFileInfo] = []
+    seen: set[str] = set()
+    for entry in files_list:
+        if not isinstance(entry, dict):
+            continue
+        schema = entry.get("fileSchema", "")
+        if schema != "IN_NETWORK_RATES":
+            continue
+        file_path = entry.get("filePath", "")
+        file_name = entry.get("fileName", "")
+        if not file_path or file_path in seen:
+            continue
+        seen.add(file_path)
+        download_url = f"{_WELLMARK_BASE}/{_WELLMARK_BRAND}/{file_path}"
+        url_hash = _stable_hash(file_name or file_path)
+        results.append(MrfFileInfo(
+            url=download_url,
+            url_hash=url_hash,
+            description=f"Wellmark: {file_name}",
+        ))
+
+    logger.info("Wellmark: found %d in-network rate files from metadata", len(results))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
 _ADAPTERS: dict[str, callable] = {
     "uhc": _uhc_get_mrf_files,
     "aetna": _aetna_get_mrf_files,
+    "wellmark": _wellmark_get_mrf_files,
     "cigna": _cigna_get_mrf_files,
     "medica": _medica_get_mrf_files,
 }

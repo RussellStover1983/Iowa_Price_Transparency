@@ -9,7 +9,7 @@ interface ProviderCardProps {
 export default function ProviderCard({ provider }: ProviderCardProps) {
   return (
     <Link
-      href={`/app/provider?id=${provider.id}`}
+      href={`/provider?id=${provider.id}`}
       className="card hover:shadow-md hover:border-primary-200 transition-all group"
     >
       <h3 className="font-semibold text-gray-900 group-hover:text-primary-600 transition-colors mb-2">

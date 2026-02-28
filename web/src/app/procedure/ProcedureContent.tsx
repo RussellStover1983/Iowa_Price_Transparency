@@ -20,7 +20,7 @@ export default function ProcedureContent() {
   if (!code) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-12 text-center text-gray-500">
-        No procedure code specified. <Link href="/app/search" className="text-primary-600 hover:underline">Search for procedures</Link>
+        No procedure code specified. <Link href="/search" className="text-primary-600 hover:underline">Search for procedures</Link>
       </div>
     );
   }
@@ -38,7 +38,7 @@ export default function ProcedureContent() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <nav className="text-sm text-gray-500 mb-6">
-        <Link href="/app/search" className="hover:text-primary-600">
+        <Link href="/search" className="hover:text-primary-600">
           Search
         </Link>
         <span className="mx-2">/</span>
@@ -63,7 +63,7 @@ export default function ProcedureContent() {
 
       <div className="mt-8 text-center">
         <Link
-          href={`/app/search?codes=${code}`}
+          href={`/search?codes=${code}`}
           className="btn-primary"
         >
           Compare prices for this procedure

@@ -42,7 +42,7 @@ export default function ProviderContent() {
   if (!id) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-12 text-center text-gray-500">
-        No provider specified. <Link href="/app/providers" className="text-primary-600 hover:underline">Browse all providers</Link>
+        No provider specified. <Link href="/providers" className="text-primary-600 hover:underline">Browse all providers</Link>
       </div>
     );
   }
@@ -60,7 +60,7 @@ export default function ProviderContent() {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <nav className="text-sm text-gray-500 mb-6">
-        <Link href="/app/providers" className="hover:text-primary-600">
+        <Link href="/providers" className="hover:text-primary-600">
           Providers
         </Link>
         <span className="mx-2">/</span>
@@ -95,7 +95,7 @@ export default function ProviderContent() {
                   <div>
                     <div className="flex items-center gap-2 mb-1">
                       <Link
-                        href={`/app/procedure?code=${proc.billing_code}`}
+                        href={`/procedure?code=${proc.billing_code}`}
                         className="px-2 py-0.5 bg-primary-100 text-primary-700 text-xs font-mono font-medium rounded hover:bg-primary-200"
                       >
                         {proc.billing_code}

@@ -17,8 +17,8 @@ IOWA_PAYERS = [
     {
         "name": "Wellmark Blue Cross Blue Shield",
         "short_name": "wellmark",
-        "toc_url": None,
-        "notes": "Largest Iowa commercial payer; no confirmed direct JSON TOC URL (HealthSparq portal only)",
+        "toc_url": "https://mrf.healthsparq.com/wmrk-egress.nophi.kyruushsq.com/prd/mrf/WMRK_I/WELLMARK/latest_metadata.json",
+        "notes": "Largest Iowa commercial payer; HealthSparq platform (same as Aetna); adapter uses latest_metadata.json",
     },
     {
         "name": "UnitedHealthcare",

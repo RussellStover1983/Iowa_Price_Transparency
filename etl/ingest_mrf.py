@@ -94,10 +94,10 @@ async def ingest_payer(
         payer = await get_payer(db, payer_short_name)
         logger.info("Ingesting payer: %s (%s)", payer["name"], payer["short_name"])
 
-        # 2. Load Iowa NPI cache
+        # 2. Load Iowa NPI + TIN cache
         matcher = ProviderMatcher()
         await matcher.load_cache(db)
-        logger.info("Loaded %d Iowa NPIs", matcher.npi_count)
+        logger.info("Loaded %d Iowa NPIs, %d TINs", matcher.npi_count, matcher.tin_count)
 
         # 3. Load target CPT codes
         target_codes = await get_target_cpt_codes(db)
@@ -143,6 +143,7 @@ async def ingest_payer(
             processor = MrfStreamProcessor(
                 iowa_npis=matcher.npi_set,
                 target_cpt_codes=target_codes,
+                iowa_tins=matcher.tin_set,
             )
 
             try:
@@ -191,6 +192,70 @@ async def ingest_payer(
         await db.close()
 
 
+def _build_deduped_rows(
+    batch: list,
+    payer_id: int,
+    mrf_file_id: int | None,
+    matcher: ProviderMatcher,
+    seen: set[tuple] | None = None,
+) -> tuple[list[tuple], dict[int, str]]:
+    """Resolve provider_ids and deduplicate rate rows.
+
+    For each RateRecord:
+      1. Try NPI-based resolution (preferred — direct org NPI match).
+      2. Fall back to TIN-based resolution, expanding to ALL matching provider_ids.
+    Deduplicates on (payer_id, provider_id, billing_code, rate, rate_type)
+    to collapse the many-physician-NPIs-per-hospital duplication in UHC data.
+
+    Pass a shared `seen` set across batches to deduplicate across an entire file.
+
+    Returns:
+        (rows, discovered_tins) where discovered_tins maps provider_id → TIN
+        for NPI-matched records that have a TIN. This allows the caller to
+        backfill providers.tin from any payer's data.
+    """
+    if seen is None:
+        seen = set()
+    rows: list[tuple] = []
+    discovered_tins: dict[int, str] = {}  # provider_id → tin
+
+    for r in batch:
+        provider_ids: list[int] = []
+
+        # Primary: NPI-based match
+        npi_id = matcher.get_provider_id(r.npi)
+        if npi_id is not None:
+            provider_ids = [npi_id]
+            # Capture TIN for this NPI-matched provider (broadens TIN coverage)
+            if r.tin and r.tin not in ("", "0"):
+                discovered_tins[npi_id] = r.tin
+        else:
+            # Fallback: TIN-based match (expand to ALL matching providers)
+            provider_ids = matcher.get_provider_ids_by_tin(r.tin)
+
+        if not provider_ids:
+            continue
+
+        for pid in provider_ids:
+            dedup_key = (payer_id, pid, r.billing_code, r.negotiated_rate, r.negotiated_type)
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            rows.append((
+                payer_id,
+                pid,
+                mrf_file_id,
+                r.billing_code,
+                r.billing_code_type,
+                r.description,
+                r.negotiated_rate,
+                r.negotiated_type,
+                r.billing_class or None,
+            ))
+
+    return rows, discovered_tins
+
+
 async def _ingest_mrf_with_matcher(
     db: aiosqlite.Connection,
     payer_id: int,
@@ -232,35 +297,25 @@ async def _ingest_mrf_with_matcher(
         await db.commit()
 
     total_inserted = 0
+    seen: set[tuple] = set()
+    all_discovered_tins: dict[int, str] = {}
     try:
         async for batch in processor.stream_rates_from_url(mrf_info.url):
             if dry_run:
                 total_inserted += len(batch)
                 continue
 
-            rows = [
-                (
-                    payer_id,
-                    matcher.get_provider_id(r.npi),
-                    mrf_file_id,
-                    r.billing_code,
-                    r.billing_code_type,
-                    r.description,
-                    r.negotiated_rate,
-                    r.negotiated_type,
-                    r.billing_class or None,
-                )
-                for r in batch
-            ]
+            rows, discovered_tins = _build_deduped_rows(batch, payer_id, mrf_file_id, matcher, seen)
+            all_discovered_tins.update(discovered_tins)
             await db.executemany(
-                "INSERT INTO normalized_rates "
+                "INSERT OR IGNORE INTO normalized_rates "
                 "(payer_id, provider_id, mrf_file_id, billing_code, billing_code_type, "
                 "description, negotiated_rate, rate_type, service_setting) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             await db.commit()
-            total_inserted += len(batch)
+            total_inserted += len(rows)
 
         # Check for parse errors recorded by the stream processor
         if processor.result.errors:
@@ -276,6 +331,10 @@ async def _ingest_mrf_with_matcher(
                 (total_inserted, now, mrf_file_id),
             )
             await db.commit()
+
+        # Backfill providers.tin from discovered TINs (any payer contributes)
+        if not dry_run and all_discovered_tins:
+            await _backfill_tins(db, all_discovered_tins)
 
     except Exception as e:
         logger.error("Error processing MRF file %s: %s", mrf_info.url_hash, e)
@@ -332,35 +391,25 @@ async def _ingest_mrf_from_bytes(
         await db.commit()
 
     total_inserted = 0
+    seen: set[tuple] = set()
+    all_discovered_tins: dict[int, str] = {}
     try:
         async for batch in processor.stream_rates_from_bytes(byte_source):
             if dry_run:
                 total_inserted += len(batch)
                 continue
 
-            rows = [
-                (
-                    payer_id,
-                    matcher.get_provider_id(r.npi),
-                    mrf_file_id,
-                    r.billing_code,
-                    r.billing_code_type,
-                    r.description,
-                    r.negotiated_rate,
-                    r.negotiated_type,
-                    r.billing_class or None,
-                )
-                for r in batch
-            ]
+            rows, discovered_tins = _build_deduped_rows(batch, payer_id, mrf_file_id, matcher, seen)
+            all_discovered_tins.update(discovered_tins)
             await db.executemany(
-                "INSERT INTO normalized_rates "
+                "INSERT OR IGNORE INTO normalized_rates "
                 "(payer_id, provider_id, mrf_file_id, billing_code, billing_code_type, "
                 "description, negotiated_rate, rate_type, service_setting) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 rows,
             )
             await db.commit()
-            total_inserted += len(batch)
+            total_inserted += len(rows)
 
         # Check for parse errors recorded by the stream processor
         if processor.result.errors:
@@ -377,6 +426,10 @@ async def _ingest_mrf_from_bytes(
             )
             await db.commit()
 
+        # Backfill providers.tin from discovered TINs (any payer contributes)
+        if not dry_run and all_discovered_tins:
+            await _backfill_tins(db, all_discovered_tins)
+
     except Exception as e:
         logger.error("Error processing MRF bytes %s: %s", mrf_info.url_hash, e)
         if not dry_run and mrf_file_id:
@@ -388,6 +441,29 @@ async def _ingest_mrf_from_bytes(
         raise
 
     return total_inserted
+
+
+async def _backfill_tins(
+    db: aiosqlite.Connection,
+    discovered_tins: dict[int, str],
+) -> int:
+    """Backfill providers.tin from TINs discovered during ingestion.
+
+    Only updates providers that don't already have a TIN set.
+    Returns the number of providers updated.
+    """
+    updated = 0
+    for provider_id, tin in discovered_tins.items():
+        cursor = await db.execute(
+            "UPDATE providers SET tin = ? WHERE id = ? AND (tin IS NULL OR tin = '')",
+            (tin, provider_id),
+        )
+        if cursor.rowcount > 0:
+            updated += 1
+    if updated > 0:
+        await db.commit()
+        logger.info("Backfilled TINs for %d providers", updated)
+    return updated
 
 
 def main():

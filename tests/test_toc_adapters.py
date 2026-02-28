@@ -3,6 +3,7 @@
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from etl.toc_adapters import (
@@ -212,3 +213,116 @@ async def test_cigna_adapter_decodes_html_entities():
     call_url = mock_parse.call_args[0][0]
     assert "&amp;" not in call_url
     assert "?Expires=123&Policy=abc&Signature=xyz" in call_url
+
+
+@pytest.mark.asyncio
+async def test_wellmark_adapter_uses_metadata():
+    """Wellmark adapter fetches latest_metadata.json and finds TOC files."""
+    metadata = {"files": [
+        {
+            "fileSchema": "TABLE_OF_CONTENTS",
+            "reportingEntityName": "Wellmark Blue Cross Blue Shield of Iowa",
+            "filePath": "2026-02-05/tableOfContents/2026-02-05_Wellmark-BCBS-Iowa_index.json.gz",
+        },
+        {
+            "fileSchema": "IN_NETWORK_RATES",
+            "reportingEntityName": "Wellmark Blue Cross Blue Shield of Iowa",
+            "filePath": "2026-02-05/inNetworkRates/plan1.json.gz",
+            "fileName": "plan1.json.gz",
+        },
+    ]}
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = metadata
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    payer = {
+        "short_name": "wellmark",
+        "toc_url": "https://mrf.healthsparq.com/wmrk-egress.nophi.kyruushsq.com/prd/mrf/WMRK_I/WMRK/latest_metadata.json",
+        "name": "Wellmark Blue Cross Blue Shield",
+    }
+
+    from etl.toc_parser import MrfFileInfo
+    with patch("etl.toc_adapters.httpx.AsyncClient", return_value=mock_client), \
+         patch("etl.toc_adapters.parse_toc_from_url", new_callable=AsyncMock) as mock_parse:
+        mock_parse.return_value = [
+            MrfFileInfo(url="https://example.com/wellmark_mrf.json.gz", url_hash="w1", description="Wellmark MRF")
+        ]
+        result = await get_mrf_file_list(payer)
+
+    # Should have used Wellmark TOC URL
+    assert len(result) == 1
+    call_url = mock_parse.call_args[0][0]
+    assert "Wellmark-BCBS-Iowa" in call_url
+    assert "wmrk-egress" in call_url
+
+
+@pytest.mark.asyncio
+async def test_wellmark_adapter_fallback_to_metadata_entries():
+    """Wellmark adapter falls back to building file list from metadata when no TOC found."""
+    metadata = {"files": [
+        {
+            "fileSchema": "IN_NETWORK_RATES",
+            "reportingEntityName": "Wellmark",
+            "filePath": "2026-02-05/inNetworkRates/iowa_plan1.json.gz",
+            "fileName": "iowa_plan1.json.gz",
+        },
+        {
+            "fileSchema": "IN_NETWORK_RATES",
+            "reportingEntityName": "Wellmark",
+            "filePath": "2026-02-05/inNetworkRates/iowa_plan2.json.gz",
+            "fileName": "iowa_plan2.json.gz",
+        },
+    ]}
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = metadata
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    payer = {
+        "short_name": "wellmark",
+        "toc_url": "https://mrf.healthsparq.com/wmrk-egress.nophi.kyruushsq.com/prd/mrf/WMRK_I/WMRK/latest_metadata.json",
+        "name": "Wellmark Blue Cross Blue Shield",
+    }
+
+    with patch("etl.toc_adapters.httpx.AsyncClient", return_value=mock_client):
+        result = await get_mrf_file_list(payer)
+
+    # No TOC entries → should fall back to direct file list from metadata
+    assert len(result) == 2
+    assert "iowa_plan1" in result[0].description
+    assert "iowa_plan2" in result[1].description
+    # URLs should be correctly constructed
+    assert "wmrk-egress" in result[0].url
+
+
+@pytest.mark.asyncio
+async def test_wellmark_adapter_metadata_fetch_error():
+    """Wellmark adapter returns empty list on metadata fetch error."""
+    mock_client = AsyncMock()
+    mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
+    payer = {
+        "short_name": "wellmark",
+        "toc_url": "https://mrf.healthsparq.com/wmrk-egress.nophi.kyruushsq.com/prd/mrf/WMRK_I/WMRK/latest_metadata.json",
+        "name": "Wellmark Blue Cross Blue Shield",
+    }
+
+    with patch("etl.toc_adapters.httpx.AsyncClient", return_value=mock_client):
+        result = await get_mrf_file_list(payer)
+
+    assert result == []
