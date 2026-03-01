@@ -49,43 +49,51 @@ function groupRatesByPayer(rates: ProviderRate[]): Map<string, ProviderRate[]> {
   return map;
 }
 
-function RateTooltip({ provider }: { provider: ProviderPricing }) {
+function RateDetailRow({ provider }: { provider: ProviderPricing }) {
   const grouped = groupRatesByPayer(provider.rates);
 
   return (
-    <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 sm:w-80 bg-gray-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
-      <div className="font-semibold mb-2 text-gray-200">
-        {provider.rates.length} rate{provider.rates.length !== 1 ? 's' : ''} from{' '}
-        {grouped.size} payer{grouped.size !== 1 ? 's' : ''}
-      </div>
-      {Array.from(grouped.entries()).map(([payerName, rates]) => (
-        <div key={payerName} className="mb-2 last:mb-0">
-          <div className="font-medium text-primary-300 mb-0.5">{payerName}</div>
-          {rates.map((r, i) => (
-            <div key={i} className="flex justify-between gap-2 text-gray-300 py-px">
-              <span className="truncate">
-                {r.rate_type || 'rate'}
-                {r.service_setting ? ` (${r.service_setting})` : ''}
-              </span>
-              <span className="font-mono text-white shrink-0">
-                {formatPrice(r.negotiated_rate)}
-              </span>
+    <tr>
+      <td colSpan={3} className="px-6 py-3 bg-gray-50 border-t border-gray-100">
+        <div className="text-xs text-gray-500 mb-2 font-medium">
+          {provider.rates.length} rate{provider.rates.length !== 1 ? 's' : ''} from{' '}
+          {grouped.size} payer{grouped.size !== 1 ? 's' : ''}
+        </div>
+        <div className="space-y-3">
+          {Array.from(grouped.entries()).map(([payerName, rates]) => (
+            <div key={payerName}>
+              <div className="text-xs font-semibold text-gray-700 mb-1">{payerName}</div>
+              <div className="grid gap-1">
+                {rates.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">
+                      {r.rate_type || 'rate'}
+                      {r.service_setting ? ` \u00b7 ${r.service_setting}` : ''}
+                    </span>
+                    <span className="font-mono text-gray-900 ml-4">
+                      {formatPrice(r.negotiated_rate)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
-      ))}
-      {/* Tooltip arrow */}
-      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
-    </div>
+      </td>
+    </tr>
   );
 }
 
 export default function ProcedureCard({ procedure }: ProcedureCardProps) {
-  const [hoveredProvider, setHoveredProvider] = useState<number | null>(null);
+  const [expandedProvider, setExpandedProvider] = useState<number | null>(null);
   const aggregated = aggregateProviders(procedure.providers);
   const allMedians = aggregated.map((a) => a.medianRate);
   const globalMin = allMedians.length > 0 ? Math.min(...allMedians) : 0;
   const globalMax = allMedians.length > 0 ? Math.max(...allMedians) : 0;
+
+  const toggleExpand = (providerId: number) => {
+    setExpandedProvider((prev) => (prev === providerId ? null : providerId));
+  };
 
   return (
     <div className="card">
@@ -122,7 +130,7 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
       {procedure.providers.length === 0 ? (
         <p className="text-sm text-gray-500 italic">No provider data available</p>
       ) : (
-        <div className="overflow-x-auto -mx-6">
+        <div className="-mx-6">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-t border-gray-100">
@@ -130,62 +138,71 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
                 <th className="text-left font-medium text-gray-500 px-3 py-2">City</th>
                 <th className="text-right font-medium text-gray-500 px-6 py-2">
                   Typical Price
-                  <span className="block text-[10px] font-normal text-gray-400">hover for detail</span>
                 </th>
               </tr>
             </thead>
-            <tbody>
-              {aggregated.map(({ provider, medianRate, minRate, maxRate, rateCount }) => (
-                <tr
-                  key={provider.provider_id}
-                  className="border-t border-gray-50 hover:bg-gray-50 transition-colors"
-                >
-                  <td className="px-6 py-2 font-medium text-gray-900">
-                    <Link
-                      href={`/provider?id=${provider.provider_id}`}
-                      className="hover:text-primary-600 transition-colors"
+            {aggregated.map(({ provider, medianRate, minRate, maxRate, rateCount }) => {
+                const isExpanded = expandedProvider === provider.provider_id;
+                return (
+                  <tbody key={provider.provider_id}>
+                    <tr
+                      className={`border-t border-gray-50 transition-colors ${
+                        rateCount > 1 ? 'cursor-pointer hover:bg-gray-50' : ''
+                      } ${isExpanded ? 'bg-gray-50' : ''}`}
+                      onClick={rateCount > 1 ? () => toggleExpand(provider.provider_id) : undefined}
                     >
-                      {provider.provider_name}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-gray-600">
-                    {provider.city || '\u2014'}
-                  </td>
-                  <td className="px-6 py-2 text-right">
-                    <div
-                      className="relative inline-block cursor-help"
-                      onMouseEnter={() => setHoveredProvider(provider.provider_id)}
-                      onMouseLeave={() => setHoveredProvider(null)}
-                    >
-                      <span
-                        className={`font-mono ${
-                          medianRate === globalMin
-                            ? 'text-green-600 font-semibold'
-                            : medianRate === globalMax
-                              ? 'text-red-600'
-                              : 'text-gray-900'
-                        }`}
-                      >
-                        {formatPrice(medianRate)}
-                      </span>
-                      {rateCount > 1 && (
-                        <span className="text-[10px] text-gray-400 ml-1">
-                          ({rateCount})
-                        </span>
-                      )}
-                      {minRate !== maxRate && (
-                        <div className="text-[10px] text-gray-400">
-                          {formatPrice(minRate)} &ndash; {formatPrice(maxRate)}
+                      <td className="px-6 py-2 font-medium text-gray-900">
+                        <Link
+                          href={`/provider?id=${provider.provider_id}`}
+                          className="hover:text-primary-600 transition-colors"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {provider.provider_name}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-gray-600">
+                        {provider.city || '\u2014'}
+                      </td>
+                      <td className="px-6 py-2 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div>
+                            <span
+                              className={`font-mono ${
+                                medianRate === globalMin
+                                  ? 'text-green-600 font-semibold'
+                                  : medianRate === globalMax
+                                    ? 'text-red-600'
+                                    : 'text-gray-900'
+                              }`}
+                            >
+                              {formatPrice(medianRate)}
+                            </span>
+                            {minRate !== maxRate && (
+                              <div className="text-[10px] text-gray-400">
+                                {formatPrice(minRate)} &ndash; {formatPrice(maxRate)}
+                              </div>
+                            )}
+                          </div>
+                          {rateCount > 1 && (
+                            <svg
+                              className={`w-4 h-4 text-gray-400 transition-transform ${
+                                isExpanded ? 'rotate-180' : ''
+                              }`}
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              strokeWidth={2}
+                              stroke="currentColor"
+                            >
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                            </svg>
+                          )}
                         </div>
-                      )}
-                      {hoveredProvider === provider.provider_id && (
-                        <RateTooltip provider={provider} />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
+                      </td>
+                    </tr>
+                    {isExpanded && <RateDetailRow provider={provider} />}
+                  </tbody>
+                );
+              })}
           </table>
         </div>
       )}
