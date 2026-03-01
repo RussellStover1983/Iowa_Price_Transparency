@@ -1,4 +1,7 @@
-import type { ProcedureComparison } from '@/lib/types';
+'use client';
+
+import { useState } from 'react';
+import type { ProcedureComparison, ProviderPricing, ProviderRate } from '@/lib/types';
 import { formatPrice } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -6,12 +9,83 @@ interface ProcedureCardProps {
   procedure: ProcedureComparison;
 }
 
-export default function ProcedureCard({ procedure }: ProcedureCardProps) {
-  const allRates = procedure.providers.flatMap((p) =>
-    p.rates.map((r) => r.negotiated_rate)
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+interface AggregatedProvider {
+  provider: ProviderPricing;
+  medianRate: number;
+  minRate: number;
+  maxRate: number;
+  rateCount: number;
+}
+
+function aggregateProviders(providers: ProviderPricing[]): AggregatedProvider[] {
+  return providers.map((provider) => {
+    const rates = provider.rates.map((r) => r.negotiated_rate);
+    return {
+      provider,
+      medianRate: median(rates),
+      minRate: Math.min(...rates),
+      maxRate: Math.max(...rates),
+      rateCount: rates.length,
+    };
+  });
+}
+
+function groupRatesByPayer(rates: ProviderRate[]): Map<string, ProviderRate[]> {
+  const map = new Map<string, ProviderRate[]>();
+  for (const r of rates) {
+    const key = r.payer_name;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(r);
+  }
+  return map;
+}
+
+function RateTooltip({ provider }: { provider: ProviderPricing }) {
+  const grouped = groupRatesByPayer(provider.rates);
+
+  return (
+    <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-72 sm:w-80 bg-gray-900 text-white text-xs rounded-lg shadow-xl p-3 pointer-events-none">
+      <div className="font-semibold mb-2 text-gray-200">
+        {provider.rates.length} rate{provider.rates.length !== 1 ? 's' : ''} from{' '}
+        {grouped.size} payer{grouped.size !== 1 ? 's' : ''}
+      </div>
+      {Array.from(grouped.entries()).map(([payerName, rates]) => (
+        <div key={payerName} className="mb-2 last:mb-0">
+          <div className="font-medium text-primary-300 mb-0.5">{payerName}</div>
+          {rates.map((r, i) => (
+            <div key={i} className="flex justify-between gap-2 text-gray-300 py-px">
+              <span className="truncate">
+                {r.rate_type || 'rate'}
+                {r.service_setting ? ` (${r.service_setting})` : ''}
+              </span>
+              <span className="font-mono text-white shrink-0">
+                {formatPrice(r.negotiated_rate)}
+              </span>
+            </div>
+          ))}
+        </div>
+      ))}
+      {/* Tooltip arrow */}
+      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
+    </div>
   );
-  const minRate = allRates.length > 0 ? Math.min(...allRates) : 0;
-  const maxRate = allRates.length > 0 ? Math.max(...allRates) : 0;
+}
+
+export default function ProcedureCard({ procedure }: ProcedureCardProps) {
+  const [hoveredProvider, setHoveredProvider] = useState<number | null>(null);
+  const aggregated = aggregateProviders(procedure.providers);
+  const allMedians = aggregated.map((a) => a.medianRate);
+  const globalMin = allMedians.length > 0 ? Math.min(...allMedians) : 0;
+  const globalMax = allMedians.length > 0 ? Math.max(...allMedians) : 0;
 
   return (
     <div className="card">
@@ -40,7 +114,7 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
         <div className="text-right shrink-0">
           <div className="text-sm text-gray-500">Range</div>
           <div className="font-semibold text-gray-900">
-            {formatPrice(minRate)} &ndash; {formatPrice(maxRate)}
+            {formatPrice(globalMin)} &ndash; {formatPrice(globalMax)}
           </div>
         </div>
       </div>
@@ -54,55 +128,63 @@ export default function ProcedureCard({ procedure }: ProcedureCardProps) {
               <tr className="border-t border-gray-100">
                 <th className="text-left font-medium text-gray-500 px-6 py-2">Provider</th>
                 <th className="text-left font-medium text-gray-500 px-3 py-2">City</th>
-                <th className="text-left font-medium text-gray-500 px-3 py-2">Payer</th>
-                <th className="text-right font-medium text-gray-500 px-6 py-2">Rate</th>
+                <th className="text-right font-medium text-gray-500 px-6 py-2">
+                  Typical Price
+                  <span className="block text-[10px] font-normal text-gray-400">hover for detail</span>
+                </th>
               </tr>
             </thead>
             <tbody>
-              {procedure.providers.map((provider) =>
-                provider.rates.map((rate, rIdx) => (
-                  <tr
-                    key={`${provider.provider_id}-${rate.payer_id}-${rIdx}`}
-                    className="border-t border-gray-50 hover:bg-gray-50 transition-colors"
-                  >
-                    {rIdx === 0 ? (
-                      <>
-                        <td
-                          className="px-6 py-2 font-medium text-gray-900"
-                          rowSpan={provider.rates.length}
-                        >
-                          <Link
-                            href={`/provider?id=${provider.provider_id}`}
-                            className="hover:text-primary-600 transition-colors"
-                          >
-                            {provider.provider_name}
-                          </Link>
-                        </td>
-                        <td
-                          className="px-3 py-2 text-gray-600"
-                          rowSpan={provider.rates.length}
-                        >
-                          {provider.city || '—'}
-                        </td>
-                      </>
-                    ) : null}
-                    <td className="px-3 py-2 text-gray-600">{rate.payer_name}</td>
-                    <td className="px-6 py-2 text-right font-mono">
+              {aggregated.map(({ provider, medianRate, minRate, maxRate, rateCount }) => (
+                <tr
+                  key={provider.provider_id}
+                  className="border-t border-gray-50 hover:bg-gray-50 transition-colors"
+                >
+                  <td className="px-6 py-2 font-medium text-gray-900">
+                    <Link
+                      href={`/provider?id=${provider.provider_id}`}
+                      className="hover:text-primary-600 transition-colors"
+                    >
+                      {provider.provider_name}
+                    </Link>
+                  </td>
+                  <td className="px-3 py-2 text-gray-600">
+                    {provider.city || '\u2014'}
+                  </td>
+                  <td className="px-6 py-2 text-right">
+                    <div
+                      className="relative inline-block cursor-help"
+                      onMouseEnter={() => setHoveredProvider(provider.provider_id)}
+                      onMouseLeave={() => setHoveredProvider(null)}
+                    >
                       <span
-                        className={
-                          rate.negotiated_rate === minRate
+                        className={`font-mono ${
+                          medianRate === globalMin
                             ? 'text-green-600 font-semibold'
-                            : rate.negotiated_rate === maxRate
+                            : medianRate === globalMax
                               ? 'text-red-600'
                               : 'text-gray-900'
-                        }
+                        }`}
                       >
-                        {formatPrice(rate.negotiated_rate)}
+                        {formatPrice(medianRate)}
                       </span>
-                    </td>
-                  </tr>
-                ))
-              )}
+                      {rateCount > 1 && (
+                        <span className="text-[10px] text-gray-400 ml-1">
+                          ({rateCount})
+                        </span>
+                      )}
+                      {minRate !== maxRate && (
+                        <div className="text-[10px] text-gray-400">
+                          {formatPrice(minRate)} &ndash; {formatPrice(maxRate)}
+                        </div>
+                      )}
+                      {hoveredProvider === provider.provider_id && (
+                        <RateTooltip provider={provider} />
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
