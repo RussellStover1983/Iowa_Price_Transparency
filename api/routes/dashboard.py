@@ -49,6 +49,11 @@ async def data_quality_summary(
     }
 
 
+# Prefer negotiated rates; fall back to derived/fee schedule only when needed
+_NEGOTIATED_ONLY = "nr.rate_type = 'negotiated'"
+_ALL_RATE_TYPES = "1=1"
+
+
 def _medicare_ref(service_setting: str | None, opps: float | None, mpfs: float | None) -> float | None:
     """Pick the appropriate Medicare reference rate based on service setting."""
     setting = (service_setting or "").lower()
@@ -154,8 +159,8 @@ async def hospital_rates(
             "error": "No primary NPI mapped for this facility",
         }
 
-    # Get all FFS rates with Medicare benchmarks (primary NPI only)
-    cursor = await db.execute(
+    # Get negotiated rates first, then check for fallback procedures
+    _rate_sql = (
         "SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
         "py.id AS payer_id, py.name AS payer_name, py.short_name, "
         "cl.description, cl.category, "
@@ -163,11 +168,33 @@ async def hospital_rates(
         "FROM normalized_rates nr "
         "JOIN payers py ON nr.payer_id = py.id "
         "LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
-        "WHERE nr.provider_id = ? "
-        "ORDER BY cl.category, nr.billing_code, py.name",
+        "WHERE nr.provider_id = ? AND {rate_filter} "
+        "ORDER BY cl.category, nr.billing_code, py.name"
+    )
+
+    # Phase 1: negotiated rates only
+    cursor = await db.execute(
+        _rate_sql.format(rate_filter=_NEGOTIATED_ONLY),
         (provider_id,),
     )
-    rows = await cursor.fetchall()
+    rows = list(await cursor.fetchall())
+
+    # Phase 2: for codes with zero negotiated rates, fall back to all types
+    negotiated_codes = {row[0] for row in rows}
+    cursor = await db.execute(
+        "SELECT DISTINCT billing_code FROM normalized_rates WHERE provider_id = ?",
+        (provider_id,),
+    )
+    all_codes = {row[0] for row in await cursor.fetchall()}
+    fallback_codes = all_codes - negotiated_codes
+
+    if fallback_codes:
+        fb_placeholders = ",".join("?" for _ in fallback_codes)
+        cursor = await db.execute(
+            _rate_sql.format(rate_filter=f"nr.billing_code IN ({fb_placeholders})"),
+            (provider_id, *fallback_codes),
+        )
+        rows.extend(await cursor.fetchall())
 
     # Group by procedure
     procedures: dict[str, dict] = {}
@@ -182,6 +209,7 @@ async def hospital_rates(
                 "medicare_professional_rate": row[10],
                 "medicare_opps_rate": row[11],
                 "payer_rates": {},
+                "rate_source": "negotiated" if code not in fallback_codes else "fallback",
             }
 
         payer_name = row[5]
@@ -251,7 +279,21 @@ async def market_position(
     )
     cpt = await cursor.fetchone()
 
-    # Build query — only primary NPIs
+    # Build query — only primary NPIs, prefer negotiated rates
+    _market_sql = (
+        "SELECT f.ccn, f.facility_name, f.city, f.bed_count, "
+        "f.ownership_type, f.hospital_type, "
+        "nr.negotiated_rate, nr.rate_type, nr.service_setting, "
+        "py.name AS payer_name "
+        "FROM normalized_rates nr "
+        "JOIN providers p ON nr.provider_id = p.id "
+        "JOIN npi_ccn_map m ON p.npi = m.npi "
+        "JOIN facilities f ON m.ccn = f.ccn "
+        "JOIN payers py ON nr.payer_id = py.id "
+        "WHERE {where_sql} "
+        "ORDER BY f.facility_name"
+    )
+
     params: list = [billing_code]
     where = ["nr.billing_code = ?", "m.is_primary = 1"]
     if payer:
@@ -261,23 +303,26 @@ async def market_position(
         where.append("LOWER(nr.service_setting) = LOWER(?)")
         params.append(service_setting)
 
-    where_sql = " AND ".join(where)
-
+    # Phase 1: negotiated rates only
+    neg_where = where + [_NEGOTIATED_ONLY]
     cursor = await db.execute(
-        f"SELECT f.ccn, f.facility_name, f.city, f.bed_count, "
-        f"f.ownership_type, f.hospital_type, "
-        f"nr.negotiated_rate, nr.rate_type, nr.service_setting, "
-        f"py.name AS payer_name "
-        f"FROM normalized_rates nr "
-        f"JOIN providers p ON nr.provider_id = p.id "
-        f"JOIN npi_ccn_map m ON p.npi = m.npi "
-        f"JOIN facilities f ON m.ccn = f.ccn "
-        f"JOIN payers py ON nr.payer_id = py.id "
-        f"WHERE {where_sql} "
-        f"ORDER BY f.facility_name",
+        _market_sql.format(where_sql=" AND ".join(neg_where)),
         params,
     )
-    rows = await cursor.fetchall()
+    rows = list(await cursor.fetchall())
+
+    # Phase 2: facilities with zero negotiated rates get fallback to all types
+    negotiated_ccns = {row[0] for row in rows}
+    all_where = " AND ".join(where)
+    cursor = await db.execute(
+        _market_sql.format(where_sql=all_where),
+        params,
+    )
+    all_rows = await cursor.fetchall()
+    for row in all_rows:
+        if row[0] not in negotiated_ccns:
+            rows.append(row)
+    fallback_ccns = {row[0] for row in all_rows} - negotiated_ccns
 
     # Group by CCN -> compute median
     facility_rates: dict[str, dict] = {}
@@ -293,6 +338,7 @@ async def market_position(
                 "hospital_type": row[5],
                 "rates": [],
                 "payers": set(),
+                "is_fallback": ccn in fallback_ccns,
             }
         facility_rates[ccn]["rates"].append(row[6])
         facility_rates[ccn]["payers"].add(row[9])
@@ -326,6 +372,7 @@ async def market_position(
             "rate_count": len(rates),
             "payer_count": len(fdata["payers"]),
             "pct_medicare": _pct_medicare(med, medicare_ref),
+            "is_fallback": fdata["is_fallback"],
         })
 
     facilities.sort(key=lambda f: f["median_rate"])
@@ -386,18 +433,35 @@ async def payer_scorecard(
             "error": "No primary NPI mapped for this facility",
         }
 
-    # Get all rates with Medicare benchmarks (primary NPI only)
-    cursor = await db.execute(
+    # Get negotiated rates first, then fall back for payers with zero negotiated
+    _scorecard_sql = (
         "SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
         "py.id AS payer_id, py.name AS payer_name, py.short_name, "
         "cl.medicare_facility_rate, cl.medicare_opps_rate "
         "FROM normalized_rates nr "
         "JOIN payers py ON nr.payer_id = py.id "
         "LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
-        "WHERE nr.provider_id = ?",
+        "WHERE nr.provider_id = ? AND {rate_filter}"
+    )
+
+    # Phase 1: negotiated rates only
+    cursor = await db.execute(
+        _scorecard_sql.format(rate_filter=_NEGOTIATED_ONLY),
         (provider_id,),
     )
-    rows = await cursor.fetchall()
+    rows = list(await cursor.fetchall())
+
+    # Phase 2: payers with zero negotiated rates get fallback
+    negotiated_payers = {row[5] for row in rows}
+    cursor = await db.execute(
+        _scorecard_sql.format(rate_filter=_ALL_RATE_TYPES),
+        (provider_id,),
+    )
+    all_rows = await cursor.fetchall()
+    for row in all_rows:
+        if row[5] not in negotiated_payers:
+            rows.append(row)
+    fallback_payers = {row[5] for row in all_rows} - negotiated_payers
 
     # Group by payer -> collect rate-to-Medicare ratios
     payer_data: dict[str, dict] = {}
@@ -448,6 +512,7 @@ async def payer_scorecard(
             "avg_pct_medicare": avg_pct,
             "median_pct_medicare": median_pct,
             "avg_rate": round(pd["rate_sum"] / pd["total_rates"], 2),
+            "is_fallback": pd["payer_name"] in fallback_payers,
         })
 
     # Sort by median % of Medicare (lowest first = potential underpayers)

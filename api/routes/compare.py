@@ -77,27 +77,47 @@ async def compare_prices(
 
     # JOIN through npi_ccn_map to deduplicate by facility (CCN).
     # Only include rates from the primary NPI per hospital.
+    # Prefer negotiated rates; fall back to derived/fee schedule per facility+code.
+    _compare_sql = (
+        "SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
+        "p.id AS provider_id, "
+        "COALESCE(f.facility_name, p.name) AS provider_name, "
+        "COALESCE(f.city, p.city) AS city, p.county, "
+        "py.id AS payer_id, py.name AS payer_name, py.short_name AS payer_short, "
+        "cl.description AS cpt_description, cl.category, cl.common_names, "
+        "cl.medicare_facility_rate, cl.medicare_professional_rate, cl.medicare_opps_rate, "
+        "COALESCE(m.ccn, CAST(p.id AS TEXT)) AS facility_key "
+        "FROM normalized_rates nr "
+        "JOIN providers p ON nr.provider_id = p.id "
+        "LEFT JOIN npi_ccn_map m ON p.npi = m.npi "
+        "LEFT JOIN facilities f ON m.ccn = f.ccn "
+        "JOIN payers py ON nr.payer_id = py.id "
+        "LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
+        "WHERE {where_sql} "
+        "AND (m.is_primary = 1 OR m.is_primary IS NULL) "
+        "ORDER BY nr.billing_code, provider_name, py.name"
+    )
+
+    # Phase 1: negotiated rates only
     cursor = await db.execute(
-        f"SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
-        f"p.id AS provider_id, "
-        f"COALESCE(f.facility_name, p.name) AS provider_name, "
-        f"COALESCE(f.city, p.city) AS city, p.county, "
-        f"py.id AS payer_id, py.name AS payer_name, py.short_name AS payer_short, "
-        f"cl.description AS cpt_description, cl.category, cl.common_names, "
-        f"cl.medicare_facility_rate, cl.medicare_professional_rate, cl.medicare_opps_rate, "
-        f"COALESCE(m.ccn, CAST(p.id AS TEXT)) AS facility_key "
-        f"FROM normalized_rates nr "
-        f"JOIN providers p ON nr.provider_id = p.id "
-        f"LEFT JOIN npi_ccn_map m ON p.npi = m.npi "
-        f"LEFT JOIN facilities f ON m.ccn = f.ccn "
-        f"JOIN payers py ON nr.payer_id = py.id "
-        f"LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
-        f"WHERE {where_sql} "
-        f"AND (m.is_primary = 1 OR m.is_primary IS NULL) "
-        f"ORDER BY nr.billing_code, provider_name, py.name",
+        _compare_sql.format(where_sql=where_sql + " AND nr.rate_type = 'negotiated'"),
         params,
     )
-    rows = await cursor.fetchall()
+    rows = list(await cursor.fetchall())
+
+    # Phase 2: for (code, facility) combos with zero negotiated rates, fall back
+    negotiated_combos = {(row[0], row[17]) for row in rows}  # (billing_code, facility_key)
+    cursor = await db.execute(
+        _compare_sql.format(where_sql=where_sql),
+        params,
+    )
+    all_rows = await cursor.fetchall()
+    fallback_combos = set()
+    for row in all_rows:
+        combo = (row[0], row[17])
+        if combo not in negotiated_combos:
+            rows.append(row)
+            fallback_combos.add(combo)
 
     # Group: code -> facility_key (CCN) -> list of rates
     code_info: dict[str, dict] = {}

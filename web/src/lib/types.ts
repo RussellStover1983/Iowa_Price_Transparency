@@ -214,6 +214,7 @@ export interface DashboardProcedure {
   medicare_professional_rate: number | null;
   medicare_opps_rate: number | null;
   payer_rates: DashboardPayerGroup[];
+  rate_source?: 'negotiated' | 'fallback';
 }
 
 export interface DashboardHospitalRatesResponse {
@@ -238,6 +239,7 @@ export interface MarketFacility {
   payer_count: number;
   pct_medicare: number | null;
   percentile: number;
+  is_fallback?: boolean;
 }
 
 export interface MarketStats {
@@ -268,6 +270,7 @@ export interface ScorecardPayer {
   avg_pct_medicare: number | null;
   median_pct_medicare: number | null;
   avg_rate: number;
+  is_fallback?: boolean;
 }
 
 export interface DashboardPayerScorecardResponse {
