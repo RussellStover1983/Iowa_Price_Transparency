@@ -101,6 +101,23 @@ async def load_npis(
     return {"status": "started", "task": "load_iowa_npis", "job_index": len(_etl_jobs) - 1}
 
 
+@router.post("/admin/load-facilities")
+async def load_facilities_endpoint(
+    token: str = Query(..., description="Admin token"),
+    skip_nppes: bool = Query(False, description="Skip NPPES API queries (just load POS data)"),
+    background_tasks: BackgroundTasks = None,
+):
+    """Load Iowa hospital facilities from CMS POS file and build NPI→CCN mapping."""
+    _verify_token(token)
+    cmd = ["python", "-m", "etl.load_facilities", "-v"]
+    if skip_nppes:
+        cmd.append("--skip-nppes")
+    job = {"task": "load_facilities", "status": "queued", "created_at": datetime.now(timezone.utc).isoformat()}
+    _etl_jobs.append(job)
+    background_tasks.add_task(_run_subprocess, cmd, job, 600)
+    return {"status": "started", "task": "load_facilities", "job_index": len(_etl_jobs) - 1}
+
+
 @router.post("/admin/ingest")
 async def ingest_mrf(
     token: str = Query(..., description="Admin token"),
