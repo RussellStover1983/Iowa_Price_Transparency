@@ -75,25 +75,33 @@ async def compare_prices(
 
     where_sql = " AND ".join(where_clauses)
 
+    # JOIN through npi_ccn_map to deduplicate by facility (CCN).
+    # Only include rates from the primary NPI per hospital.
     cursor = await db.execute(
         f"SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
-        f"p.id AS provider_id, p.name AS provider_name, p.city, p.county, "
+        f"p.id AS provider_id, "
+        f"COALESCE(f.facility_name, p.name) AS provider_name, "
+        f"COALESCE(f.city, p.city) AS city, p.county, "
         f"py.id AS payer_id, py.name AS payer_name, py.short_name AS payer_short, "
         f"cl.description AS cpt_description, cl.category, cl.common_names, "
-        f"cl.medicare_facility_rate, cl.medicare_professional_rate, cl.medicare_opps_rate "
+        f"cl.medicare_facility_rate, cl.medicare_professional_rate, cl.medicare_opps_rate, "
+        f"COALESCE(m.ccn, CAST(p.id AS TEXT)) AS facility_key "
         f"FROM normalized_rates nr "
         f"JOIN providers p ON nr.provider_id = p.id "
+        f"LEFT JOIN npi_ccn_map m ON p.npi = m.npi "
+        f"LEFT JOIN facilities f ON m.ccn = f.ccn "
         f"JOIN payers py ON nr.payer_id = py.id "
         f"LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
         f"WHERE {where_sql} "
-        f"ORDER BY nr.billing_code, p.name, py.name",
+        f"AND (m.is_primary = 1 OR m.is_primary IS NULL) "
+        f"ORDER BY nr.billing_code, provider_name, py.name",
         params,
     )
     rows = await cursor.fetchall()
 
-    # Group: code -> provider_id -> list of rates
+    # Group: code -> facility_key (CCN) -> list of rates
     code_info: dict[str, dict] = {}
-    code_provider_rates: dict[str, dict[int, dict]] = defaultdict(
+    code_provider_rates: dict[str, dict[str, dict]] = defaultdict(
         lambda: defaultdict(lambda: {"info": None, "rates": []})
     )
 
@@ -116,6 +124,7 @@ async def compare_prices(
         medicare_facility = row[14]
         medicare_professional = row[15]
         medicare_opps = row[16]
+        facility_key = row[17]
 
         if billing_code not in code_info:
             common_names = []
@@ -133,7 +142,7 @@ async def compare_prices(
                 "medicare_opps_rate": medicare_opps,
             }
 
-        provider_data = code_provider_rates[billing_code][provider_id]
+        provider_data = code_provider_rates[billing_code][facility_key]
         if provider_data["info"] is None:
             provider_data["info"] = {
                 "provider_id": provider_id,
@@ -162,7 +171,7 @@ async def compare_prices(
 
         provider_list = []
         all_rates_for_code = []
-        for provider_id, pdata in providers_for_code.items():
+        for facility_key, pdata in providers_for_code.items():
             rates = pdata["rates"]
             rate_values = [r.negotiated_rate for r in rates]
             all_rates_for_code.extend(rate_values)
@@ -177,7 +186,7 @@ async def compare_prices(
                     max_rate=max(rate_values),
                 )
             )
-            all_provider_ids.add(provider_id)
+            all_provider_ids.add(facility_key)
 
         # Sort providers if requested
         if sort == "price_asc":
