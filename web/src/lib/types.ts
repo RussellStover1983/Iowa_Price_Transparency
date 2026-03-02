@@ -33,6 +33,12 @@ export interface ProviderPricing {
   max_rate: number;
 }
 
+export interface MedicareRates {
+  facility_rate: number | null;
+  professional_rate: number | null;
+  opps_rate: number | null;
+}
+
 export interface ProcedureComparison {
   billing_code: string;
   description: string | null;
@@ -40,6 +46,7 @@ export interface ProcedureComparison {
   common_names: string[];
   providers: ProviderPricing[];
   provider_count: number;
+  medicare: MedicareRates | null;
 }
 
 export interface ProcedureStats {

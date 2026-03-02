@@ -150,11 +150,11 @@ export default function SearchContent() {
       {/* Hero section */}
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">
-          Compare Medical Procedure Prices
+          Compare Negotiated Rates
         </h1>
         <p className="text-gray-600 max-w-2xl mx-auto">
-          Search for medical procedures and compare negotiated rates across Iowa
-          hospitals and insurance payers.
+          Search for procedures and compare negotiated rates across Iowa
+          facilities and payers, with Medicare benchmarks.
         </p>
       </div>
 

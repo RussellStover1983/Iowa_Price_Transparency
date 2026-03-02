@@ -12,6 +12,7 @@ import aiosqlite
 from api.dependencies import get_db
 from db.models import (
     CompareResponse,
+    MedicareRates,
     ProcedureComparison,
     ProcedureStats,
     ProviderPricing,
@@ -78,7 +79,8 @@ async def compare_prices(
         f"SELECT nr.billing_code, nr.negotiated_rate, nr.rate_type, nr.service_setting, "
         f"p.id AS provider_id, p.name AS provider_name, p.city, p.county, "
         f"py.id AS payer_id, py.name AS payer_name, py.short_name AS payer_short, "
-        f"cl.description AS cpt_description, cl.category, cl.common_names "
+        f"cl.description AS cpt_description, cl.category, cl.common_names, "
+        f"cl.medicare_facility_rate, cl.medicare_professional_rate, cl.medicare_opps_rate "
         f"FROM normalized_rates nr "
         f"JOIN providers p ON nr.provider_id = p.id "
         f"JOIN payers py ON nr.payer_id = py.id "
@@ -111,6 +113,10 @@ async def compare_prices(
         category = row[12]
         raw_common_names = row[13]
 
+        medicare_facility = row[14]
+        medicare_professional = row[15]
+        medicare_opps = row[16]
+
         if billing_code not in code_info:
             common_names = []
             if raw_common_names:
@@ -122,6 +128,9 @@ async def compare_prices(
                 "description": cpt_description,
                 "category": category,
                 "common_names": common_names,
+                "medicare_facility_rate": medicare_facility,
+                "medicare_professional_rate": medicare_professional,
+                "medicare_opps_rate": medicare_opps,
             }
 
         provider_data = code_provider_rates[billing_code][provider_id]
@@ -176,6 +185,18 @@ async def compare_prices(
         elif sort == "price_desc":
             provider_list.sort(key=lambda p: p.min_rate, reverse=True)
 
+        # Build Medicare rates object if available
+        medicare = None
+        mf = info.get("medicare_facility_rate")
+        mp = info.get("medicare_professional_rate")
+        mo = info.get("medicare_opps_rate")
+        if mf or mp or mo:
+            medicare = MedicareRates(
+                facility_rate=mf if mf and mf > 0 else None,
+                professional_rate=mp if mp and mp > 0 else None,
+                opps_rate=mo if mo and mo > 0 else None,
+            )
+
         procedures.append(
             ProcedureComparison(
                 billing_code=code,
@@ -184,6 +205,7 @@ async def compare_prices(
                 common_names=info.get("common_names", []),
                 providers=provider_list,
                 provider_count=len(provider_list),
+                medicare=medicare,
             )
         )
 

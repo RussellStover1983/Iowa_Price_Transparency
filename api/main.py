@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import admin, compare, cpt, export, payers, procedures, providers
+from api.routes import admin, compare, cpt, dashboard, export, payers, procedures, providers
 from db.init_db import init_database
 from db.session import get_connection
 from db.models import HealthResponse
@@ -41,6 +41,7 @@ if os.getenv("ENVIRONMENT") != "production":
 app.include_router(admin.router)
 app.include_router(compare.router)
 app.include_router(cpt.router)
+app.include_router(dashboard.router)
 app.include_router(export.router)
 app.include_router(payers.router)
 app.include_router(procedures.router)

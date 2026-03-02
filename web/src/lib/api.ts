@@ -89,6 +89,26 @@ export async function getHealth(): Promise<HealthResponse> {
   return fetchApi(`/health`);
 }
 
+// Dashboard APIs
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getHospitalRates(providerId: number): Promise<any> {
+  return fetchApi(`/v1/dashboard/hospital-rates?provider_id=${providerId}`);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getMarketPosition(billingCode: string, payer?: string, serviceSetting?: string): Promise<any> {
+  const sp = new URLSearchParams();
+  sp.set('billing_code', billingCode);
+  if (payer) sp.set('payer', payer);
+  if (serviceSetting) sp.set('service_setting', serviceSetting);
+  return fetchApi(`/v1/dashboard/market-position?${sp.toString()}`);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getPayerScorecard(providerId: number): Promise<any> {
+  return fetchApi(`/v1/dashboard/payer-scorecard?provider_id=${providerId}`);
+}
+
 export function getExportUrl(params: {
   codes: string[];
   payer?: string;

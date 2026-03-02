@@ -84,7 +84,10 @@ CREATE TABLE IF NOT EXISTS cpt_lookup (
     code TEXT PRIMARY KEY,
     description TEXT NOT NULL,
     category TEXT,
-    common_names TEXT
+    common_names TEXT,
+    medicare_facility_rate REAL,
+    medicare_professional_rate REAL,
+    medicare_opps_rate REAL
 );
 
 -- FTS5 virtual table for CPT search
@@ -153,6 +156,17 @@ async def _migrate_dedup_index(db: aiosqlite.Connection) -> None:
         print(f"  Deduplicated normalized_rates: removed {deleted} duplicate rows")
 
 
+async def _migrate_medicare_columns(db: aiosqlite.Connection) -> None:
+    """Add Medicare rate columns to cpt_lookup if they don't exist."""
+    cursor = await db.execute("PRAGMA table_info(cpt_lookup)")
+    cols = {row[1] for row in await cursor.fetchall()}
+    for col in ("medicare_facility_rate", "medicare_professional_rate", "medicare_opps_rate"):
+        if col not in cols:
+            await db.execute(f"ALTER TABLE cpt_lookup ADD COLUMN {col} REAL")
+            print(f"  Added column cpt_lookup.{col}")
+    await db.commit()
+
+
 async def init_database(db_path: str | None = None):
     """Create all tables and indexes idempotently."""
     path = db_path or DATABASE_PATH
@@ -167,6 +181,10 @@ async def init_database(db_path: str | None = None):
         await _migrate_dedup_index(db)
 
         await db.executescript(SCHEMA_SQL)
+
+        # Migrate: add Medicare columns to existing DBs
+        await _migrate_medicare_columns(db)
+
         await db.commit()
         print(f"Database initialized at {path}")
     finally:

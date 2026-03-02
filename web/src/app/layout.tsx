@@ -4,8 +4,8 @@ import Footer from '@/components/Footer';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Iowa Price Transparency',
-  description: 'Compare medical procedure prices across Iowa hospitals',
+  title: 'Iowa Rate Analyzer',
+  description: 'Analyze negotiated rates and payer contracts across Iowa facilities',
 };
 
 export default function RootLayout({

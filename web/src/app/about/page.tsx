@@ -20,11 +20,12 @@ export default function AboutPage() {
         <div className="card">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">What is this?</h2>
           <p className="text-gray-600 leading-relaxed">
-            The Iowa Price Transparency tool helps Iowans compare negotiated medical procedure
-            prices across hospitals and insurance payers. Under the federal{' '}
+            Iowa Rate Analyzer helps health systems and managed care teams analyze
+            negotiated rates across Iowa facilities and payers. Under the federal{' '}
             <span className="font-medium">Transparency in Coverage Rule</span>, health insurers
             are required to publish machine-readable files (MRFs) containing their negotiated
-            rates with healthcare providers.
+            rates with healthcare providers. This tool transforms that data into actionable
+            intelligence for payer contract negotiations.
           </p>
         </div>
 
@@ -96,18 +97,18 @@ export default function AboutPage() {
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Important Disclaimers</h2>
           <div className="space-y-2 text-gray-600 text-sm">
             <p>
-              This tool shows <span className="font-medium">negotiated rates</span> between
-              insurance payers and healthcare providers. These are not the prices you will
-              necessarily pay out of pocket.
+              This tool displays <span className="font-medium">negotiated rates</span> extracted
+              from payer MRF disclosures. Rate accuracy depends on the quality and timeliness
+              of the payer-published data.
             </p>
             <p>
-              Your actual costs depend on your specific insurance plan, deductible, copay/coinsurance
-              amounts, and whether you have met your out-of-pocket maximum.
+              Medicare benchmarks use CY 2025 MPFS (Iowa Locality 00) and OPPS national rates.
+              Rate-to-Medicare ratios are approximate and should be validated against your
+              facility&apos;s internal charge data before use in contract negotiations.
             </p>
             <p>
-              This tool is for informational purposes only and should not be used as the sole
-              basis for healthcare decisions. Always consult with your insurance provider and
-              healthcare team for accurate cost estimates.
+              This tool is for informational and analytical purposes only. It does not constitute
+              financial or legal advice.
             </p>
           </div>
         </div>

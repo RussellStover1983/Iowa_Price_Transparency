@@ -92,6 +92,12 @@ class ProviderPricing(BaseModel):
     max_rate: float
 
 
+class MedicareRates(BaseModel):
+    facility_rate: Optional[float] = None
+    professional_rate: Optional[float] = None
+    opps_rate: Optional[float] = None
+
+
 class ProcedureComparison(BaseModel):
     billing_code: str
     description: Optional[str] = None
@@ -99,6 +105,7 @@ class ProcedureComparison(BaseModel):
     common_names: list[str] = []
     providers: list[ProviderPricing]
     provider_count: int
+    medicare: Optional[MedicareRates] = None
 
 
 class ProcedureStats(BaseModel):
