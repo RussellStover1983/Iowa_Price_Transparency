@@ -411,14 +411,7 @@ function MarketTab({ code: initialCode }: { code: string }) {
                         >
                           {f.name}
                         </Link>
-                        <div className="text-[10px] text-gray-400">
-                          {f.hospital_type}
-                          {f.is_fallback && (
-                            <span className="ml-1 text-[9px] font-medium px-1 py-0.5 bg-gray-100 text-gray-500 rounded" title="No negotiated rates — showing derived/fee schedule rates">
-                              Derived
-                            </span>
-                          )}
-                        </div>
+                        <div className="text-[10px] text-gray-400">{f.hospital_type}</div>
                       </td>
                       <td className="px-3 py-2 text-gray-600">{f.city || '\u2014'}</td>
                       <td className="px-3 py-2 text-right text-gray-500 text-xs">{f.bed_count || '\u2014'}</td>
@@ -542,14 +535,7 @@ function ScorecardTab({ initialCcn }: { initialCcn: string }) {
                 <tbody>
                   {data.payers.map((p: ScorecardPayer) => (
                     <tr key={p.payer_id} className="border-t border-gray-50 hover:bg-gray-50">
-                      <td className="px-6 py-3 font-medium text-gray-900">
-                        {p.payer_name}
-                        {p.is_fallback && (
-                          <span className="ml-2 text-[9px] font-medium px-1 py-0.5 bg-gray-100 text-gray-500 rounded" title="No negotiated rates — showing derived/fee schedule rates">
-                            Derived
-                          </span>
-                        )}
-                      </td>
+                      <td className="px-6 py-3 font-medium text-gray-900">{p.payer_name}</td>
                       <td className="px-3 py-3 text-right text-gray-600">{p.procedure_count}</td>
                       <td className="px-3 py-3 text-right text-gray-600">{p.total_rates}</td>
                       <td className="px-3 py-3 text-right font-mono text-gray-900">

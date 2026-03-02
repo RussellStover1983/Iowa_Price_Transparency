@@ -98,26 +98,12 @@ async def compare_prices(
         "ORDER BY nr.billing_code, provider_name, py.name"
     )
 
-    # Phase 1: negotiated rates only
+    # Negotiated rates only — no fallback for cross-facility comparison
     cursor = await db.execute(
         _compare_sql.format(where_sql=where_sql + " AND nr.rate_type = 'negotiated'"),
         params,
     )
-    rows = list(await cursor.fetchall())
-
-    # Phase 2: for (code, facility) combos with zero negotiated rates, fall back
-    negotiated_combos = {(row[0], row[17]) for row in rows}  # (billing_code, facility_key)
-    cursor = await db.execute(
-        _compare_sql.format(where_sql=where_sql),
-        params,
-    )
-    all_rows = await cursor.fetchall()
-    fallback_combos = set()
-    for row in all_rows:
-        combo = (row[0], row[17])
-        if combo not in negotiated_combos:
-            rows.append(row)
-            fallback_combos.add(combo)
+    rows = await cursor.fetchall()
 
     # Group: code -> facility_key (CCN) -> list of rates
     code_info: dict[str, dict] = {}

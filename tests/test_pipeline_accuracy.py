@@ -345,5 +345,5 @@ async def test_end_to_end_mrf_to_api(seeded_db, complex_mrf_path):
 
     # Verify 27447 stats include our known rates
     knee_stats = next(s for s in data["stats"] if s["billing_code"] == "27447")
-    assert knee_stats["rate_count"] >= 6  # at least the 6 from complex MRF
+    assert knee_stats["rate_count"] >= 5  # negotiated rates from complex MRF (fee schedule filtered out)
     assert knee_stats["potential_savings"] >= 0

@@ -303,26 +303,13 @@ async def market_position(
         where.append("LOWER(nr.service_setting) = LOWER(?)")
         params.append(service_setting)
 
-    # Phase 1: negotiated rates only
-    neg_where = where + [_NEGOTIATED_ONLY]
+    # Negotiated rates only — no fallback for market comparison (apples-to-apples)
+    where.append(_NEGOTIATED_ONLY)
     cursor = await db.execute(
-        _market_sql.format(where_sql=" AND ".join(neg_where)),
+        _market_sql.format(where_sql=" AND ".join(where)),
         params,
     )
-    rows = list(await cursor.fetchall())
-
-    # Phase 2: facilities with zero negotiated rates get fallback to all types
-    negotiated_ccns = {row[0] for row in rows}
-    all_where = " AND ".join(where)
-    cursor = await db.execute(
-        _market_sql.format(where_sql=all_where),
-        params,
-    )
-    all_rows = await cursor.fetchall()
-    for row in all_rows:
-        if row[0] not in negotiated_ccns:
-            rows.append(row)
-    fallback_ccns = {row[0] for row in all_rows} - negotiated_ccns
+    rows = await cursor.fetchall()
 
     # Group by CCN -> compute median
     facility_rates: dict[str, dict] = {}
@@ -338,7 +325,6 @@ async def market_position(
                 "hospital_type": row[5],
                 "rates": [],
                 "payers": set(),
-                "is_fallback": ccn in fallback_ccns,
             }
         facility_rates[ccn]["rates"].append(row[6])
         facility_rates[ccn]["payers"].add(row[9])
@@ -372,7 +358,6 @@ async def market_position(
             "rate_count": len(rates),
             "payer_count": len(fdata["payers"]),
             "pct_medicare": _pct_medicare(med, medicare_ref),
-            "is_fallback": fdata["is_fallback"],
         })
 
     facilities.sort(key=lambda f: f["median_rate"])
