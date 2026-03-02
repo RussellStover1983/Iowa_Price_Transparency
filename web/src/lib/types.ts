@@ -164,3 +164,115 @@ export interface HealthResponse {
   status: string;
   database: string;
 }
+
+/* ===== Dashboard types ===== */
+
+export interface DashboardFacility {
+  ccn: string;
+  facility_name: string;
+  city: string;
+  bed_count: number | null;
+  ownership_type: string | null;
+  hospital_type: string | null;
+  has_rate_data: boolean;
+  rate_count: number;
+}
+
+export interface DashboardFacilitiesResponse {
+  facilities: DashboardFacility[];
+  total: number;
+  with_data: number;
+}
+
+export interface FacilityInfo {
+  ccn: string;
+  name: string;
+  city: string;
+  bed_count: number | null;
+  ownership_type: string | null;
+  hospital_type: string | null;
+}
+
+export interface DashboardPayerRate {
+  negotiated_rate: number;
+  rate_type: string | null;
+  service_setting: string | null;
+  pct_medicare: number | null;
+}
+
+export interface DashboardPayerGroup {
+  payer_id: number;
+  payer_name: string;
+  rates: DashboardPayerRate[];
+}
+
+export interface DashboardProcedure {
+  billing_code: string;
+  description: string | null;
+  category: string | null;
+  medicare_facility_rate: number | null;
+  medicare_professional_rate: number | null;
+  medicare_opps_rate: number | null;
+  payer_rates: DashboardPayerGroup[];
+}
+
+export interface DashboardHospitalRatesResponse {
+  facility: FacilityInfo;
+  procedures: DashboardProcedure[];
+  procedure_count: number;
+  payer_count: number;
+  error?: string;
+}
+
+export interface MarketFacility {
+  ccn: string;
+  name: string;
+  city: string;
+  bed_count: number | null;
+  ownership_type: string | null;
+  hospital_type: string | null;
+  median_rate: number;
+  min_rate: number;
+  max_rate: number;
+  rate_count: number;
+  payer_count: number;
+  pct_medicare: number | null;
+  percentile: number;
+}
+
+export interface MarketStats {
+  min: number;
+  max: number;
+  median: number;
+  mean: number;
+  p25: number | null;
+  p75: number | null;
+}
+
+export interface DashboardMarketPositionResponse {
+  billing_code: string;
+  description: string | null;
+  category: string | null;
+  medicare: MedicareRates | null;
+  market_stats: MarketStats | null;
+  facilities: MarketFacility[];
+  facility_count: number;
+}
+
+export interface ScorecardPayer {
+  payer_id: number;
+  payer_name: string;
+  short_name: string;
+  procedure_count: number;
+  total_rates: number;
+  avg_pct_medicare: number | null;
+  median_pct_medicare: number | null;
+  avg_rate: number;
+}
+
+export interface DashboardPayerScorecardResponse {
+  facility: FacilityInfo;
+  payers: ScorecardPayer[];
+  payer_count: number;
+  error?: string;
+}

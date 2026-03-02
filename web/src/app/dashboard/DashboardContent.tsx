@@ -2,9 +2,26 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getProviders, getHospitalRates, getMarketPosition, getPayerScorecard, searchCpt } from '@/lib/api';
+import {
+  getDashboardFacilities,
+  getHospitalRates,
+  getMarketPosition,
+  getPayerScorecard,
+  searchCpt,
+} from '@/lib/api';
+import type {
+  DashboardFacility,
+  DashboardHospitalRatesResponse,
+  DashboardMarketPositionResponse,
+  DashboardPayerScorecardResponse,
+  DashboardProcedure,
+  DashboardPayerGroup,
+  MarketFacility,
+  ScorecardPayer,
+} from '@/lib/types';
 import { formatPrice } from '@/lib/utils';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import InfoTip from '@/components/InfoTip';
 import Link from 'next/link';
 
 type Tab = 'hospital' | 'market' | 'scorecard';
@@ -14,7 +31,7 @@ export default function DashboardContent() {
   const searchParams = useSearchParams();
 
   const tab = (searchParams.get('tab') as Tab) || 'hospital';
-  const providerId = searchParams.get('provider') ? Number(searchParams.get('provider')) : null;
+  const ccn = searchParams.get('ccn') || '';
   const code = searchParams.get('code') || '';
 
   const setTab = (t: Tab) => {
@@ -53,38 +70,52 @@ export default function DashboardContent() {
         ))}
       </div>
 
-      {tab === 'hospital' && <HospitalTab providerId={providerId} />}
+      {tab === 'hospital' && <HospitalTab initialCcn={ccn} />}
       {tab === 'market' && <MarketTab code={code} />}
-      {tab === 'scorecard' && <ScorecardTab providerId={providerId} />}
+      {tab === 'scorecard' && <ScorecardTab initialCcn={ccn} />}
     </div>
   );
 }
 
-/* ===== Hospital Selector ===== */
-function ProviderSelector({ selectedId, onSelect }: { selectedId: number | null; onSelect: (id: number) => void }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [providers, setProviders] = useState<any[]>([]);
+/* ===== Facility Selector (CCN-based) ===== */
+function FacilitySelector({
+  selectedCcn,
+  onSelect,
+  showOnlyWithData,
+}: {
+  selectedCcn: string;
+  onSelect: (ccn: string) => void;
+  showOnlyWithData?: boolean;
+}) {
+  const [facilities, setFacilities] = useState<DashboardFacility[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getProviders({ limit: 500 })
-      .then((res) => setProviders(res.providers))
+    getDashboardFacilities()
+      .then((res) => {
+        const list = showOnlyWithData
+          ? res.facilities.filter((f) => f.has_rate_data)
+          : res.facilities;
+        setFacilities(list);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [showOnlyWithData]);
 
-  if (loading) return <div className="text-sm text-gray-400">Loading providers...</div>;
+  if (loading) return <div className="text-sm text-gray-400">Loading facilities...</div>;
 
   return (
     <select
-      value={selectedId || ''}
-      onChange={(e) => onSelect(Number(e.target.value))}
+      value={selectedCcn}
+      onChange={(e) => onSelect(e.target.value)}
       className="block w-full max-w-md px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-primary-500 focus:border-primary-500"
     >
       <option value="">Select a hospital...</option>
-      {providers.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name} ({p.city})
+      {facilities.map((f) => (
+        <option key={f.ccn} value={f.ccn}>
+          {f.facility_name} ({f.city})
+          {f.bed_count ? ` - ${f.bed_count} beds` : ''}
+          {!f.has_rate_data ? ' [no rate data]' : ''}
         </option>
       ))}
     </select>
@@ -92,82 +123,96 @@ function ProviderSelector({ selectedId, onSelect }: { selectedId: number | null;
 }
 
 /* ===== My Hospital Tab ===== */
-function HospitalTab({ providerId }: { providerId: number | null }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [data, setData] = useState<any>(null);
+function HospitalTab({ initialCcn }: { initialCcn: string }) {
+  const [data, setData] = useState<DashboardHospitalRatesResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<number | null>(providerId);
+  const [selectedCcn, setSelectedCcn] = useState(initialCcn);
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const handleSelect = (id: number) => {
-    setSelectedProvider(id);
+  const handleSelect = (ccn: string) => {
+    setSelectedCcn(ccn);
     const sp = new URLSearchParams(searchParams.toString());
-    sp.set('provider', id.toString());
+    if (ccn) {
+      sp.set('ccn', ccn);
+    } else {
+      sp.delete('ccn');
+    }
     sp.set('tab', 'hospital');
     router.replace(`/dashboard/?${sp.toString()}`, { scroll: false });
   };
 
   useEffect(() => {
-    if (!selectedProvider) return;
+    if (!selectedCcn) return;
     setLoading(true);
-    getHospitalRates(selectedProvider)
+    getHospitalRates(selectedCcn)
       .then(setData)
-      .catch(() => {})
+      .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [selectedProvider]);
+  }, [selectedCcn]);
 
   return (
     <div>
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">Select Hospital</label>
-        <ProviderSelector selectedId={selectedProvider} onSelect={handleSelect} />
+        <FacilitySelector selectedCcn={selectedCcn} onSelect={handleSelect} showOnlyWithData />
       </div>
 
       {loading && <LoadingSpinner className="py-12" />}
 
-      {!loading && data && data.provider && (
+      {!loading && data && data.facility && !data.error && (
         <>
           <div className="card mb-6">
-            <h2 className="text-lg font-bold text-gray-900">{data.provider.name}</h2>
+            <h2 className="text-lg font-bold text-gray-900">{data.facility.name}</h2>
             <p className="text-sm text-gray-500">
-              {data.provider.city}{data.provider.county ? `, ${data.provider.county} County` : ''}
-              {' '}{'\u00b7'}{' '}
+              {data.facility.city}
+              {data.facility.bed_count ? ` \u00b7 ${data.facility.bed_count} beds` : ''}
+              {data.facility.hospital_type ? ` \u00b7 ${data.facility.hospital_type}` : ''}
+              {' \u00b7 '}
               {data.procedure_count} procedures {'\u00b7'}{' '}
               {data.payer_count} payer{data.payer_count !== 1 ? 's' : ''}
             </p>
+            <p className="text-xs text-gray-400 mt-1">CCN: {data.facility.ccn}</p>
           </div>
 
           {/* Group procedures by category */}
           {Object.entries(
-            data.procedures.reduce((acc: Record<string, typeof data.procedures>, proc: typeof data.procedures[0]) => {
+            data.procedures.reduce((acc: Record<string, DashboardProcedure[]>, proc) => {
               const cat = proc.category || 'other';
               if (!acc[cat]) acc[cat] = [];
               acc[cat].push(proc);
               return acc;
-            }, {} as Record<string, typeof data.procedures>)
+            }, {})
           ).map(([category, procs]) => (
             <div key={category} className="mb-6">
               <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
                 {category.replace('_', ' ')}
               </h3>
               <div className="space-y-2">
-                {(procs as typeof data.procedures).map((proc: typeof data.procedures[0]) => (
+                {procs.map((proc) => (
                   <div key={proc.billing_code} className="card py-3">
                     <div className="flex items-start justify-between gap-4 mb-2">
                       <div>
                         <span className="text-xs font-mono text-primary-600 mr-2">{proc.billing_code}</span>
                         <span className="text-sm font-medium text-gray-900">{proc.description}</span>
                       </div>
-                      {proc.medicare_opps_rate && (
-                        <span className="text-xs text-amber-600 shrink-0">
-                          Medicare: {formatPrice(proc.medicare_opps_rate)}
-                        </span>
-                      )}
+                      <div className="flex gap-3 shrink-0 items-center">
+                        {proc.medicare_opps_rate && (
+                          <span className="text-xs text-amber-600">
+                            OPPS: {formatPrice(proc.medicare_opps_rate)}
+                            <InfoTip text="CY 2025 Outpatient Prospective Payment System national rate. Used as benchmark for institutional/outpatient rates." className="ml-1" />
+                          </span>
+                        )}
+                        {proc.medicare_facility_rate && (
+                          <span className="text-xs text-amber-600">
+                            MPFS: {formatPrice(proc.medicare_facility_rate)}
+                            <InfoTip text="CY 2025 Medicare Physician Fee Schedule rate for Iowa Locality 00. Used as benchmark for professional/ambulatory rates." className="ml-1" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="space-y-1">
-                      {proc.payer_rates.map((pr: { payer_name: string; rates: { negotiated_rate: number; rate_type: string; service_setting: string; pct_medicare: number | null }[] }) => {
-                        // Show median rate and % of Medicare for this payer
+                      {proc.payer_rates.map((pr: DashboardPayerGroup) => {
                         const rates = pr.rates.map((r) => r.negotiated_rate);
                         const med = rates.sort((a, b) => a - b)[Math.floor(rates.length / 2)];
                         const pctValues = pr.rates.filter((r) => r.pct_medicare).map((r) => r.pct_medicare!);
@@ -185,7 +230,7 @@ function HospitalTab({ providerId }: { providerId: number | null }) {
                                     : medPct > 200 ? 'bg-amber-100 text-amber-700'
                                     : 'bg-green-100 text-green-700'
                                 }`}>
-                                  {medPct}%
+                                  {medPct}% of Medicare
                                 </span>
                               )}
                             </div>
@@ -201,8 +246,12 @@ function HospitalTab({ providerId }: { providerId: number | null }) {
         </>
       )}
 
-      {!loading && !data && selectedProvider && (
-        <div className="card text-center text-gray-500 py-8">No data found for this provider.</div>
+      {!loading && data && data.error && (
+        <div className="card text-center text-amber-600 py-8">{data.error}</div>
+      )}
+
+      {!loading && !data && selectedCcn && (
+        <div className="card text-center text-gray-500 py-8">No data found for this facility.</div>
       )}
     </div>
   );
@@ -210,8 +259,7 @@ function HospitalTab({ providerId }: { providerId: number | null }) {
 
 /* ===== Market Position Tab ===== */
 function MarketTab({ code: initialCode }: { code: string }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<DashboardMarketPositionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialCode);
   const [selectedCode, setSelectedCode] = useState(initialCode);
@@ -244,7 +292,7 @@ function MarketTab({ code: initialCode }: { code: string }) {
     setLoading(true);
     getMarketPosition(selectedCode)
       .then(setData)
-      .catch(() => {})
+      .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, [selectedCode]);
 
@@ -311,6 +359,12 @@ function MarketTab({ code: initialCode }: { code: string }) {
                   <span className="font-semibold text-amber-600">{formatPrice(data.medicare.opps_rate)}</span>
                 </div>
               )}
+              {data.medicare?.facility_rate && (
+                <div>
+                  <span className="text-gray-500">Medicare MPFS:</span>{' '}
+                  <span className="font-semibold text-amber-600">{formatPrice(data.medicare.facility_rate)}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -319,35 +373,43 @@ function MarketTab({ code: initialCode }: { code: string }) {
             <h3 className="font-semibold text-gray-900 mb-3">
               {data.facility_count} Facilities Ranked by Median Rate
             </h3>
-            <div className="-mx-6">
+            <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-t border-gray-100">
                     <th className="text-left font-medium text-gray-500 px-6 py-2 w-8">#</th>
                     <th className="text-left font-medium text-gray-500 px-3 py-2">Facility</th>
                     <th className="text-left font-medium text-gray-500 px-3 py-2">City</th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">Median Rate</th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">% Medicare</th>
-                    <th className="text-right font-medium text-gray-500 px-6 py-2">Percentile</th>
+                    <th className="text-right font-medium text-gray-500 px-3 py-2">Beds</th>
+                    <th className="text-right font-medium text-gray-500 px-3 py-2">
+                      Median Rate
+                      <InfoTip text="Median of all negotiated rates for this facility+procedure from the primary NPI. Less sensitive to outliers than mean." className="ml-1" />
+                    </th>
+                    <th className="text-right font-medium text-gray-500 px-3 py-2">
+                      % Medicare
+                      <InfoTip text="Negotiated rate as a percentage of the applicable Medicare reference rate (OPPS for facility, MPFS for professional)." className="ml-1" />
+                    </th>
+                    <th className="text-right font-medium text-gray-500 px-6 py-2">
+                      Percentile
+                      <InfoTip text="Facility's rank among all Iowa facilities for this procedure. 0 = lowest rate, 100 = highest rate." className="ml-1" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.facilities.map((f: {
-                    provider_id: number; name: string; city: string;
-                    median_rate: number; min_rate: number; max_rate: number;
-                    pct_medicare: number | null; percentile: number; rate_count: number;
-                  }, idx: number) => (
-                    <tr key={f.provider_id} className="border-t border-gray-50 hover:bg-gray-50">
+                  {data.facilities.map((f: MarketFacility, idx: number) => (
+                    <tr key={f.ccn} className="border-t border-gray-50 hover:bg-gray-50">
                       <td className="px-6 py-2 text-gray-400 text-xs">{idx + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">
                         <Link
-                          href={`/dashboard/?tab=hospital&provider=${f.provider_id}`}
+                          href={`/dashboard/?tab=hospital&ccn=${f.ccn}`}
                           className="hover:text-primary-600"
                         >
                           {f.name}
                         </Link>
+                        <div className="text-[10px] text-gray-400">{f.hospital_type}</div>
                       </td>
-                      <td className="px-3 py-2 text-gray-600">{f.city || '—'}</td>
+                      <td className="px-3 py-2 text-gray-600">{f.city || '\u2014'}</td>
+                      <td className="px-3 py-2 text-right text-gray-500 text-xs">{f.bed_count || '\u2014'}</td>
                       <td className="px-3 py-2 text-right font-mono text-gray-900">
                         {formatPrice(f.median_rate)}
                         {f.min_rate !== f.max_rate && (
@@ -366,7 +428,7 @@ function MarketTab({ code: initialCode }: { code: string }) {
                             {f.pct_medicare}%
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">{'\u2014'}</span>
                         )}
                       </td>
                       <td className="px-6 py-2 text-right">
@@ -395,51 +457,59 @@ function MarketTab({ code: initialCode }: { code: string }) {
 }
 
 /* ===== Payer Scorecard Tab ===== */
-function ScorecardTab({ providerId }: { providerId: number | null }) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [data, setData] = useState<any>(null);
+function ScorecardTab({ initialCcn }: { initialCcn: string }) {
+  const [data, setData] = useState<DashboardPayerScorecardResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [selectedProvider, setSelectedProvider] = useState<number | null>(providerId);
+  const [selectedCcn, setSelectedCcn] = useState(initialCcn);
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const handleSelect = (id: number) => {
-    setSelectedProvider(id);
+  const handleSelect = (ccn: string) => {
+    setSelectedCcn(ccn);
     const sp = new URLSearchParams(searchParams.toString());
-    sp.set('provider', id.toString());
+    if (ccn) {
+      sp.set('ccn', ccn);
+    } else {
+      sp.delete('ccn');
+    }
     sp.set('tab', 'scorecard');
     router.replace(`/dashboard/?${sp.toString()}`, { scroll: false });
   };
 
   useEffect(() => {
-    if (!selectedProvider) return;
+    if (!selectedCcn) return;
     setLoading(true);
-    getPayerScorecard(selectedProvider)
+    getPayerScorecard(selectedCcn)
       .then(setData)
-      .catch(() => {})
+      .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [selectedProvider]);
+  }, [selectedCcn]);
 
   return (
     <div>
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-2">Select Hospital</label>
-        <ProviderSelector selectedId={selectedProvider} onSelect={handleSelect} />
+        <FacilitySelector selectedCcn={selectedCcn} onSelect={handleSelect} showOnlyWithData />
       </div>
 
       {loading && <LoadingSpinner className="py-12" />}
 
-      {!loading && data && data.provider && (
+      {!loading && data && data.facility && !data.error && (
         <>
           <div className="card mb-6">
-            <h2 className="text-lg font-bold text-gray-900">{data.provider.name}</h2>
+            <h2 className="text-lg font-bold text-gray-900">{data.facility.name}</h2>
             <p className="text-sm text-gray-500">
               Payer Performance Scorecard {'\u00b7'} {data.payer_count} payer{data.payer_count !== 1 ? 's' : ''}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              {data.facility.city}
+              {data.facility.bed_count ? ` \u00b7 ${data.facility.bed_count} beds` : ''}
+              {' \u00b7 CCN: '}{data.facility.ccn}
             </p>
           </div>
 
           <div className="card">
-            <div className="-mx-6">
+            <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-t border-gray-100">
@@ -447,16 +517,18 @@ function ScorecardTab({ providerId }: { providerId: number | null }) {
                     <th className="text-right font-medium text-gray-500 px-3 py-2">Procedures</th>
                     <th className="text-right font-medium text-gray-500 px-3 py-2">Rates</th>
                     <th className="text-right font-medium text-gray-500 px-3 py-2">Avg Rate</th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">Median % Medicare</th>
-                    <th className="text-right font-medium text-gray-500 px-6 py-2">Avg % Medicare</th>
+                    <th className="text-right font-medium text-gray-500 px-3 py-2">
+                      Median % Medicare
+                      <InfoTip text="Median of per-procedure rate-to-Medicare ratios. Primary ranking metric — lower values may indicate underpaying contracts." className="ml-1" />
+                    </th>
+                    <th className="text-right font-medium text-gray-500 px-6 py-2">
+                      Avg % Medicare
+                      <InfoTip text="Mean of per-procedure rate-to-Medicare ratios. Compare with median to detect skew from outlier procedures." className="ml-1" />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.payers.map((p: {
-                    payer_id: number; payer_name: string; procedure_count: number;
-                    total_rates: number; avg_rate: number;
-                    median_pct_medicare: number | null; avg_pct_medicare: number | null;
-                  }) => (
+                  {data.payers.map((p: ScorecardPayer) => (
                     <tr key={p.payer_id} className="border-t border-gray-50 hover:bg-gray-50">
                       <td className="px-6 py-3 font-medium text-gray-900">{p.payer_name}</td>
                       <td className="px-3 py-3 text-right text-gray-600">{p.procedure_count}</td>
@@ -474,7 +546,7 @@ function ScorecardTab({ providerId }: { providerId: number | null }) {
                             {p.median_pct_medicare}%
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">{'\u2014'}</span>
                         )}
                       </td>
                       <td className="px-6 py-3 text-right">
@@ -487,7 +559,7 @@ function ScorecardTab({ providerId }: { providerId: number | null }) {
                             {p.avg_pct_medicare}%
                           </span>
                         ) : (
-                          <span className="text-gray-300">—</span>
+                          <span className="text-gray-300">{'\u2014'}</span>
                         )}
                       </td>
                     </tr>
@@ -497,6 +569,10 @@ function ScorecardTab({ providerId }: { providerId: number | null }) {
             </div>
           </div>
         </>
+      )}
+
+      {!loading && data && data.error && (
+        <div className="card text-center text-amber-600 py-8">{data.error}</div>
       )}
     </div>
   );

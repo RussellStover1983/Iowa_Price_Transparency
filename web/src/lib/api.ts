@@ -90,13 +90,22 @@ export async function getHealth(): Promise<HealthResponse> {
 }
 
 // Dashboard APIs
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getHospitalRates(providerId: number): Promise<any> {
-  return fetchApi(`/v1/dashboard/hospital-rates?provider_id=${providerId}`);
+import type {
+  DashboardFacilitiesResponse,
+  DashboardHospitalRatesResponse,
+  DashboardMarketPositionResponse,
+  DashboardPayerScorecardResponse,
+} from './types';
+
+export async function getDashboardFacilities(): Promise<DashboardFacilitiesResponse> {
+  return fetchApi('/v1/dashboard/facilities');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getMarketPosition(billingCode: string, payer?: string, serviceSetting?: string): Promise<any> {
+export async function getHospitalRates(ccn: string): Promise<DashboardHospitalRatesResponse> {
+  return fetchApi(`/v1/dashboard/hospital-rates?ccn=${encodeURIComponent(ccn)}`);
+}
+
+export async function getMarketPosition(billingCode: string, payer?: string, serviceSetting?: string): Promise<DashboardMarketPositionResponse> {
   const sp = new URLSearchParams();
   sp.set('billing_code', billingCode);
   if (payer) sp.set('payer', payer);
@@ -104,9 +113,8 @@ export async function getMarketPosition(billingCode: string, payer?: string, ser
   return fetchApi(`/v1/dashboard/market-position?${sp.toString()}`);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getPayerScorecard(providerId: number): Promise<any> {
-  return fetchApi(`/v1/dashboard/payer-scorecard?provider_id=${providerId}`);
+export async function getPayerScorecard(ccn: string): Promise<DashboardPayerScorecardResponse> {
+  return fetchApi(`/v1/dashboard/payer-scorecard?ccn=${encodeURIComponent(ccn)}`);
 }
 
 export function getExportUrl(params: {

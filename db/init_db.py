@@ -99,6 +99,45 @@ CREATE VIRTUAL TABLE IF NOT EXISTS cpt_fts USING fts5(
     content_rowid='rowid'
 );
 
+-- Canonical facility list from CMS Provider of Services (POS) file
+CREATE TABLE IF NOT EXISTS facilities (
+    ccn TEXT PRIMARY KEY,
+    facility_name TEXT NOT NULL,
+    address TEXT,
+    city TEXT,
+    zip_code TEXT,
+    bed_count INTEGER,
+    ownership_type TEXT,
+    hospital_type TEXT,
+    active INTEGER DEFAULT 1
+);
+
+-- NPI → CCN mapping table
+CREATE TABLE IF NOT EXISTS npi_ccn_map (
+    npi TEXT PRIMARY KEY,
+    ccn TEXT NOT NULL REFERENCES facilities(ccn),
+    taxonomy_code TEXT,
+    is_subpart INTEGER DEFAULT 0,
+    is_primary INTEGER DEFAULT 0,
+    enumeration_date TEXT,
+    provider_id INTEGER REFERENCES providers(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_npi_ccn_map_ccn ON npi_ccn_map(ccn);
+CREATE INDEX IF NOT EXISTS idx_npi_ccn_map_primary ON npi_ccn_map(ccn, is_primary);
+
+-- Data quality log
+CREATE TABLE IF NOT EXISTS data_quality_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    category TEXT NOT NULL,
+    ccn TEXT,
+    npi TEXT,
+    billing_code TEXT,
+    payer_name TEXT,
+    detail TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Triggers to keep FTS in sync with cpt_lookup
 CREATE TRIGGER IF NOT EXISTS cpt_lookup_ai AFTER INSERT ON cpt_lookup BEGIN
     INSERT INTO cpt_fts(rowid, code, description, common_names)
