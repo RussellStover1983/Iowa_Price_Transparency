@@ -311,7 +311,11 @@ async def market_position(
     )
     rows = await cursor.fetchall()
 
-    # Group by CCN -> compute median
+    # Classify service_setting into professional vs facility
+    _FACILITY_SETTINGS = {"institutional", "outpatient", "inpatient"}
+    _PROFESSIONAL_SETTINGS = {"professional", "ambulatory"}
+
+    # Group by CCN -> split rates by service setting
     facility_rates: dict[str, dict] = {}
     for row in rows:
         ccn = row[0]
@@ -323,27 +327,42 @@ async def market_position(
                 "bed_count": row[3],
                 "ownership_type": row[4],
                 "hospital_type": row[5],
-                "rates": [],
+                "facility_rates": [],
+                "professional_rates": [],
                 "payers": set(),
             }
-        facility_rates[ccn]["rates"].append(row[6])
+        setting = (row[8] or "").lower()
+        if setting in _FACILITY_SETTINGS:
+            facility_rates[ccn]["facility_rates"].append(row[6])
+        elif setting in _PROFESSIONAL_SETTINGS:
+            facility_rates[ccn]["professional_rates"].append(row[6])
+        else:
+            # Unknown setting — include in facility bucket as default
+            facility_rates[ccn]["facility_rates"].append(row[6])
         facility_rates[ccn]["payers"].add(row[9])
 
-    # Compute medians and sort
+    # Medicare references
+    medicare_opps = cpt[4] if cpt else None
+    medicare_mpfs = cpt[2] if cpt else None
+
+    # Compute medians per component and total
     facilities = []
     for fdata in facility_rates.values():
-        rates = fdata["rates"]
-        med = round(statistics.median(rates), 2)
+        f_rates = fdata["facility_rates"]
+        p_rates = fdata["professional_rates"]
 
-        # Pick Medicare reference
-        medicare_ref = None
-        ss = (service_setting or "").lower()
-        if ss in ("institutional", "outpatient", "inpatient") and cpt and cpt[4]:
-            medicare_ref = cpt[4]
-        elif ss in ("professional", "ambulatory") and cpt and cpt[2]:
-            medicare_ref = cpt[2]
-        elif cpt and cpt[4]:
-            medicare_ref = cpt[4]  # Default to OPPS for mixed
+        med_facility = round(statistics.median(f_rates), 2) if f_rates else None
+        med_professional = round(statistics.median(p_rates), 2) if p_rates else None
+
+        # Total = sum of both medians when both exist, otherwise the one we have
+        if med_facility is not None and med_professional is not None:
+            med_total = round(med_facility + med_professional, 2)
+        elif med_facility is not None:
+            med_total = med_facility
+        elif med_professional is not None:
+            med_total = med_professional
+        else:
+            continue  # no rates at all, skip
 
         facilities.append({
             "ccn": fdata["ccn"],
@@ -352,32 +371,34 @@ async def market_position(
             "bed_count": fdata["bed_count"],
             "ownership_type": fdata["ownership_type"],
             "hospital_type": fdata["hospital_type"],
-            "median_rate": med,
-            "min_rate": round(min(rates), 2),
-            "max_rate": round(max(rates), 2),
-            "rate_count": len(rates),
+            "median_facility": med_facility,
+            "median_professional": med_professional,
+            "median_total": med_total,
+            "rate_count": len(f_rates) + len(p_rates),
             "payer_count": len(fdata["payers"]),
-            "pct_medicare": _pct_medicare(med, medicare_ref),
+            "pct_medicare_facility": _pct_medicare(med_facility, medicare_opps) if med_facility else None,
+            "pct_medicare_professional": _pct_medicare(med_professional, medicare_mpfs) if med_professional else None,
         })
 
-    facilities.sort(key=lambda f: f["median_rate"])
+    # Default sort by total
+    facilities.sort(key=lambda f: f["median_total"])
 
-    # Compute percentile
+    # Compute percentile based on total
     n = len(facilities)
     for i, f in enumerate(facilities):
         f["percentile"] = round((i / max(n - 1, 1)) * 100) if n > 1 else 50
 
-    # Market stats
-    all_medians = [f["median_rate"] for f in facilities]
+    # Market stats (based on total)
+    all_totals = [f["median_total"] for f in facilities]
     market_stats = None
-    if all_medians:
+    if all_totals:
         market_stats = {
-            "min": min(all_medians),
-            "max": max(all_medians),
-            "median": round(statistics.median(all_medians), 2),
-            "mean": round(statistics.mean(all_medians), 2),
-            "p25": round(all_medians[len(all_medians) // 4], 2) if len(all_medians) >= 4 else None,
-            "p75": round(all_medians[3 * len(all_medians) // 4], 2) if len(all_medians) >= 4 else None,
+            "min": min(all_totals),
+            "max": max(all_totals),
+            "median": round(statistics.median(all_totals), 2),
+            "mean": round(statistics.mean(all_totals), 2),
+            "p25": round(all_totals[len(all_totals) // 4], 2) if len(all_totals) >= 4 else None,
+            "p75": round(all_totals[3 * len(all_totals) // 4], 2) if len(all_totals) >= 4 else None,
         }
 
     return {
@@ -385,9 +406,9 @@ async def market_position(
         "description": cpt[0] if cpt else None,
         "category": cpt[1] if cpt else None,
         "medicare": {
-            "facility_rate": cpt[2] if cpt else None,
+            "facility_rate": medicare_mpfs,
             "professional_rate": cpt[3] if cpt else None,
-            "opps_rate": cpt[4] if cpt else None,
+            "opps_rate": medicare_opps,
         } if cpt else None,
         "market_stats": market_stats,
         "facilities": facilities,

@@ -232,14 +232,14 @@ export interface MarketFacility {
   bed_count: number | null;
   ownership_type: string | null;
   hospital_type: string | null;
-  median_rate: number;
-  min_rate: number;
-  max_rate: number;
+  median_facility: number | null;
+  median_professional: number | null;
+  median_total: number;
   rate_count: number;
   payer_count: number;
-  pct_medicare: number | null;
+  pct_medicare_facility: number | null;
+  pct_medicare_professional: number | null;
   percentile: number;
-  is_fallback?: boolean;
 }
 
 export interface MarketStats {

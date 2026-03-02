@@ -263,11 +263,16 @@ function HospitalTab({ initialCcn }: { initialCcn: string }) {
 }
 
 /* ===== Market Position Tab ===== */
+type SortKey = 'total' | 'facility' | 'professional' | 'percentile';
+type SortDir = 'asc' | 'desc';
+
 function MarketTab({ code: initialCode }: { code: string }) {
   const [data, setData] = useState<DashboardMarketPositionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState(initialCode);
   const [selectedCode, setSelectedCode] = useState(initialCode);
+  const [sortKey, setSortKey] = useState<SortKey>('total');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [showResults, setShowResults] = useState(false);
@@ -291,6 +296,33 @@ function MarketTab({ code: initialCode }: { code: string }) {
     sp.set('tab', 'market');
     router.replace(`/dashboard/?${sp.toString()}`, { scroll: false });
   };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortIndicator = (key: SortKey) => {
+    if (sortKey !== key) return <span className="text-gray-300 ml-0.5">{'\u2195'}</span>;
+    return <span className="text-primary-600 ml-0.5">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>;
+  };
+
+  const sortedFacilities = data?.facilities ? [...data.facilities].sort((a, b) => {
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const valA = sortKey === 'total' ? a.median_total
+      : sortKey === 'facility' ? (a.median_facility ?? Infinity)
+      : sortKey === 'professional' ? (a.median_professional ?? Infinity)
+      : a.percentile;
+    const valB = sortKey === 'total' ? b.median_total
+      : sortKey === 'facility' ? (b.median_facility ?? Infinity)
+      : sortKey === 'professional' ? (b.median_professional ?? Infinity)
+      : b.percentile;
+    return (valA - valB) * dir;
+  }) : [];
 
   useEffect(() => {
     if (!selectedCode) return;
@@ -347,7 +379,7 @@ function MarketTab({ code: initialCode }: { code: string }) {
               {data.market_stats && (
                 <>
                   <div>
-                    <span className="text-gray-500">Market median:</span>{' '}
+                    <span className="text-gray-500">Market median (total):</span>{' '}
                     <span className="font-semibold">{formatPrice(data.market_stats.median)}</span>
                   </div>
                   <div>
@@ -362,12 +394,14 @@ function MarketTab({ code: initialCode }: { code: string }) {
                 <div>
                   <span className="text-gray-500">Medicare OPPS:</span>{' '}
                   <span className="font-semibold text-amber-600">{formatPrice(data.medicare.opps_rate)}</span>
+                  <InfoTip text="Outpatient Prospective Payment System — Medicare benchmark for hospital/facility fees." className="ml-1" />
                 </div>
               )}
               {data.medicare?.facility_rate && (
                 <div>
                   <span className="text-gray-500">Medicare MPFS:</span>{' '}
                   <span className="font-semibold text-amber-600">{formatPrice(data.medicare.facility_rate)}</span>
+                  <InfoTip text="Medicare Physician Fee Schedule — Medicare benchmark for professional/surgeon fees." className="ml-1" />
                 </div>
               )}
             </div>
@@ -375,9 +409,12 @@ function MarketTab({ code: initialCode }: { code: string }) {
 
           {/* Facility ranking table */}
           <div className="card">
-            <h3 className="font-semibold text-gray-900 mb-3">
-              {data.facility_count} Facilities Ranked by Median Rate
+            <h3 className="font-semibold text-gray-900 mb-1">
+              {data.facility_count} Facilities
             </h3>
+            <p className="text-xs text-gray-500 mb-3">
+              Click column headers to sort. Facility fee = hospital charges. Professional fee = surgeon/physician charges.
+            </p>
             <div className="-mx-6 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -385,23 +422,42 @@ function MarketTab({ code: initialCode }: { code: string }) {
                     <th className="text-left font-medium text-gray-500 px-6 py-2 w-8">#</th>
                     <th className="text-left font-medium text-gray-500 px-3 py-2">Facility</th>
                     <th className="text-left font-medium text-gray-500 px-3 py-2">City</th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">Beds</th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">
-                      Median Rate
-                      <InfoTip text="Median of all negotiated rates for this facility+procedure from the primary NPI. Less sensitive to outliers than mean." className="ml-1" />
+                    <th
+                      className="text-right font-medium text-gray-500 px-3 py-2 cursor-pointer select-none hover:text-gray-700"
+                      onClick={() => handleSort('facility')}
+                    >
+                      Facility Fee
+                      <InfoTip text="Hospital/facility component — covers OR, equipment, nursing, anesthesia. Compared to Medicare OPPS." className="ml-1" />
+                      {sortIndicator('facility')}
                     </th>
-                    <th className="text-right font-medium text-gray-500 px-3 py-2">
-                      % Medicare
-                      <InfoTip text="Negotiated rate as a percentage of the applicable Medicare reference rate (OPPS for facility, MPFS for professional)." className="ml-1" />
+                    <th
+                      className="text-right font-medium text-gray-500 px-3 py-2 cursor-pointer select-none hover:text-gray-700"
+                      onClick={() => handleSort('professional')}
+                    >
+                      Professional Fee
+                      <InfoTip text="Surgeon/physician component — covers the provider's personal services. Compared to Medicare MPFS." className="ml-1" />
+                      {sortIndicator('professional')}
                     </th>
-                    <th className="text-right font-medium text-gray-500 px-6 py-2">
+                    <th
+                      className="text-right font-medium text-gray-500 px-3 py-2 cursor-pointer select-none hover:text-gray-700"
+                      onClick={() => handleSort('total')}
+                    >
+                      Total
+                      <InfoTip text="Sum of facility + professional medians. If only one component is available, total equals that component." className="ml-1" />
+                      {sortIndicator('total')}
+                    </th>
+                    <th
+                      className="text-right font-medium text-gray-500 px-6 py-2 cursor-pointer select-none hover:text-gray-700"
+                      onClick={() => handleSort('percentile')}
+                    >
                       Percentile
-                      <InfoTip text="Facility's rank among all Iowa facilities for this procedure. 0 = lowest rate, 100 = highest rate." className="ml-1" />
+                      <InfoTip text="Rank among all Iowa facilities for this procedure based on total. 0 = lowest, 100 = highest." className="ml-1" />
+                      {sortIndicator('percentile')}
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.facilities.map((f: MarketFacility, idx: number) => (
+                  {sortedFacilities.map((f: MarketFacility, idx: number) => (
                     <tr key={f.ccn} className="border-t border-gray-50 hover:bg-gray-50">
                       <td className="px-6 py-2 text-gray-400 text-xs">{idx + 1}</td>
                       <td className="px-3 py-2 font-medium text-gray-900">
@@ -414,27 +470,48 @@ function MarketTab({ code: initialCode }: { code: string }) {
                         <div className="text-[10px] text-gray-400">{f.hospital_type}</div>
                       </td>
                       <td className="px-3 py-2 text-gray-600">{f.city || '\u2014'}</td>
-                      <td className="px-3 py-2 text-right text-gray-500 text-xs">{f.bed_count || '\u2014'}</td>
-                      <td className="px-3 py-2 text-right font-mono text-gray-900">
-                        {formatPrice(f.median_rate)}
-                        {f.min_rate !== f.max_rate && (
-                          <div className="text-[10px] text-gray-400">
-                            {formatPrice(f.min_rate)} – {formatPrice(f.max_rate)}
-                          </div>
-                        )}
-                      </td>
                       <td className="px-3 py-2 text-right">
-                        {f.pct_medicare !== null ? (
-                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${
-                            f.pct_medicare > 300 ? 'bg-red-100 text-red-700'
-                              : f.pct_medicare > 200 ? 'bg-amber-100 text-amber-700'
-                              : 'bg-green-100 text-green-700'
-                          }`}>
-                            {f.pct_medicare}%
-                          </span>
+                        {f.median_facility !== null ? (
+                          <div>
+                            <span className="font-mono text-gray-900">{formatPrice(f.median_facility)}</span>
+                            {f.pct_medicare_facility !== null && (
+                              <div className="text-[10px]">
+                                <span className={
+                                  f.pct_medicare_facility > 300 ? 'text-red-600'
+                                    : f.pct_medicare_facility > 200 ? 'text-amber-600'
+                                    : 'text-green-600'
+                                }>
+                                  {f.pct_medicare_facility}% OPPS
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-gray-300">{'\u2014'}</span>
                         )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {f.median_professional !== null ? (
+                          <div>
+                            <span className="font-mono text-gray-900">{formatPrice(f.median_professional)}</span>
+                            {f.pct_medicare_professional !== null && (
+                              <div className="text-[10px]">
+                                <span className={
+                                  f.pct_medicare_professional > 300 ? 'text-red-600'
+                                    : f.pct_medicare_professional > 200 ? 'text-amber-600'
+                                    : 'text-green-600'
+                                }>
+                                  {f.pct_medicare_professional}% MPFS
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-300">{'\u2014'}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono font-semibold text-gray-900">
+                        {formatPrice(f.median_total)}
                       </td>
                       <td className="px-6 py-2 text-right">
                         <div className="flex items-center justify-end gap-2">
