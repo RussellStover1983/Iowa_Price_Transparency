@@ -284,12 +284,14 @@ async def market_position(
         "SELECT f.ccn, f.facility_name, f.city, f.bed_count, "
         "f.ownership_type, f.hospital_type, "
         "nr.negotiated_rate, nr.rate_type, nr.service_setting, "
-        "py.name AS payer_name "
+        "py.name AS payer_name, "
+        "cl.medicare_facility_rate, cl.medicare_opps_rate "
         "FROM normalized_rates nr "
         "JOIN providers p ON nr.provider_id = p.id "
         "JOIN npi_ccn_map m ON p.npi = m.npi "
         "JOIN facilities f ON m.ccn = f.ccn "
         "JOIN payers py ON nr.payer_id = py.id "
+        "LEFT JOIN cpt_lookup cl ON nr.billing_code = cl.code "
         "WHERE {where_sql} "
         "ORDER BY f.facility_name"
     )
@@ -315,6 +317,21 @@ async def market_position(
     _FACILITY_SETTINGS = {"institutional", "outpatient", "inpatient"}
     _PROFESSIONAL_SETTINGS = {"professional", "ambulatory"}
 
+    def _is_mislabeled_professional(rate: float, setting: str, mpfs: float | None, opps: float | None) -> bool:
+        """Detect rates labeled institutional that are actually professional fees.
+
+        Heuristic: if a rate tagged 'institutional' is within 2% of MPFS and
+        less than 25% of OPPS, it's almost certainly a professional fee that
+        was mislabeled in the payer's MRF filing.
+        """
+        if setting not in _FACILITY_SETTINGS:
+            return False
+        if not mpfs or mpfs <= 0 or not opps or opps <= 0:
+            return False
+        close_to_mpfs = abs(rate - mpfs) / mpfs <= 0.02
+        far_from_opps = rate < opps * 0.25
+        return close_to_mpfs and far_from_opps
+
     # Group by CCN -> split rates by service setting
     facility_rates: dict[str, dict] = {}
     for row in rows:
@@ -330,15 +347,22 @@ async def market_position(
                 "facility_rates": [],
                 "professional_rates": [],
                 "payers": set(),
+                "reclassified": False,
             }
+        rate = row[6]
         setting = (row[8] or "").lower()
-        if setting in _FACILITY_SETTINGS:
-            facility_rates[ccn]["facility_rates"].append(row[6])
+        row_mpfs = row[10]  # medicare_facility_rate (MPFS)
+        row_opps = row[11]  # medicare_opps_rate
+
+        if _is_mislabeled_professional(rate, setting, row_mpfs, row_opps):
+            facility_rates[ccn]["professional_rates"].append(rate)
+            facility_rates[ccn]["reclassified"] = True
+        elif setting in _FACILITY_SETTINGS:
+            facility_rates[ccn]["facility_rates"].append(rate)
         elif setting in _PROFESSIONAL_SETTINGS:
-            facility_rates[ccn]["professional_rates"].append(row[6])
+            facility_rates[ccn]["professional_rates"].append(rate)
         else:
-            # Unknown setting — include in facility bucket as default
-            facility_rates[ccn]["facility_rates"].append(row[6])
+            facility_rates[ccn]["facility_rates"].append(rate)
         facility_rates[ccn]["payers"].add(row[9])
 
     # Medicare references
@@ -378,6 +402,7 @@ async def market_position(
             "payer_count": len(fdata["payers"]),
             "pct_medicare_facility": _pct_medicare(med_facility, medicare_opps) if med_facility else None,
             "pct_medicare_professional": _pct_medicare(med_professional, medicare_mpfs) if med_professional else None,
+            "reclassified": fdata["reclassified"],
         })
 
     # Default sort by total

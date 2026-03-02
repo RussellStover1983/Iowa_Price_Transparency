@@ -240,6 +240,7 @@ export interface MarketFacility {
   pct_medicare_facility: number | null;
   pct_medicare_professional: number | null;
   percentile: number;
+  reclassified?: boolean;
 }
 
 export interface MarketStats {

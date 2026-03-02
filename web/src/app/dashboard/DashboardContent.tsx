@@ -467,7 +467,17 @@ function MarketTab({ code: initialCode }: { code: string }) {
                         >
                           {f.name}
                         </Link>
-                        <div className="text-[10px] text-gray-400">{f.hospital_type}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {f.hospital_type}
+                          {f.reclassified && (
+                            <span
+                              className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-medium px-1 py-0.5 bg-amber-50 text-amber-600 rounded border border-amber-200 cursor-help"
+                              title="Some rates for this facility were labeled as facility fees in the payer's MRF filing but match Medicare professional fee benchmarks. A heuristic moved them to the Professional Fee column. Verify with the payer's published data."
+                            >
+                              Reclassified
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2 text-gray-600">{f.city || '\u2014'}</td>
                       <td className="px-3 py-2 text-right">
